@@ -368,3 +368,36 @@ async fn cli_directory_grants_are_enforced_by_a_real_http_listener() {
     task.abort();
     let _ = task.await;
 }
+
+#[test]
+fn inline_grants_stay_with_their_export_when_another_share_is_added() {
+    let f = Fixture::new();
+    f.ok(&["init"]);
+    assert!(f.text().contains("grants = ["));
+    assert!(!f.text().contains("[[exports.grants]]"));
+    let second = f.root.path().join("second");
+    fs::create_dir(&second).unwrap();
+    f.ok(&["share", "add", "second", second.to_str().unwrap(), "rw"]);
+    f.ok(&["grant", "owner", "second", "ro"]);
+    let config: Config = toml::from_str(&f.text()).unwrap();
+    let first = config
+        .exports
+        .iter()
+        .find(|export| export.alias.as_deref() == Some("docs"))
+        .unwrap();
+    let other = config
+        .exports
+        .iter()
+        .find(|export| export.alias.as_deref() == Some("second"))
+        .unwrap();
+    assert_eq!(first.grants.len(), 1);
+    assert!(first.grants[0].execute);
+    assert!(first.grants[0].access == nestos_node::config::model::Access::Rw);
+    assert_eq!(other.grants.len(), 1);
+    assert!(!other.grants[0].execute);
+    assert!(!f.text().contains("[[exports.grants]]"));
+    f.ok(&["revoke", "owner", "second"]);
+    let config: Config = toml::from_str(&f.text()).unwrap();
+    assert!(config.exports[1].grants.is_empty());
+    assert_eq!(config.exports[0].grants.len(), 1);
+}

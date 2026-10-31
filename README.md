@@ -175,7 +175,7 @@ retained_files = 5
 
 - debug：文件变更/命令准入；info：启动就绪、变更提交、命令启动与成功结束、取消和关闭。
 - warn/error：认证拒绝、HTTP 错误、命令非零退出、超时、启动或清理失败；保留操作/请求 ID、状态和退出码。
-- 原生 Codex RPC 失败输出 `harness.native.failed`：method、rpcCode、稳定 code、durationMs，不记录原生错误全文。`HARNESS_SESSION_BUSY` 表示其他原生实例持有会话写入锁；`HARNESS_INVALID_PARAMS` 对应 -32602，其他未识别原生错误保留 `HARNESS_RPC_ERROR`。读取历史成功不代表能恢复写入。
+- 原生 Codex RPC 失败输出 `harness.native.failed`：method、rpcCode、稳定 code、durationMs，以及 sessionId、profileId、projectId、ownerId、processId、childPid、nativeRpcId；来自修改操作时携带原 requestId/operationId 和 epoch。字段缺失保持 null，不记录原生错误全文、输入、路径或凭据。`harness.operation.started/completed` 记录修改执行及持久回执的 committed/not-committed/unknown；`harness.native.completed` 记录原生线程创建、恢复和归档等成功。`harness.native.started/stopping/stopped` 记录子进程生命周期、停止原因、回收结果及退出码；子进程终止不证明外部写入者释放锁。`HARNESS_SESSION_BUSY` 表示其他原生实例持有会话写入锁；`HARNESS_INVALID_PARAMS` 对应 -32602，其他未识别原生错误保留 `HARNESS_RPC_ERROR`。读取历史成功不代表能恢复写入。
 - Codex 后台可能在客户端离开后继续保留会话；写锁不证明某个前台客户端仍在使用，持久化 source 字段也不能识别当前锁持有者。锁拒绝后保留输入，不删除锁文件或强制并发写入。
 - `harness_session_info` 与会话历史返回可选 `session.writerLock`，这是独立于历史占用错误的只读 Linux 锁检查：`status=held/not-held/unknown`、`checkedAt`、持有者 `owner.pid/uid/processStartedAt`，可选 `lockFileModifiedAt` 和安全错误码。锁文件设备号与 inode 对照 `/proc/locks` 的实际 FLOCK WRITE，复查持有者变化；文件存在不代表被锁，准确取得锁的时间无法获知，`acquiredAt=null`，不得拿文件修改或进程启动时间代替。旧观察不证明当前占用，失败指令仍须用户重新提交。`harness.writer_lock.observed` 保留操作身份、会话、阶段、结果、PID/UID、错误码及耗时，不输出物理路径、命令行或正文；权限不足、锁表超限和检查变化返回 unknown，不阻断普通会话读取。
 - 原生执行记录 `harness.turn.started/completed/failed`，流错误记录 `harness.stream.error`。保留 sessionId、turnId、状态、重试标记及原生提供的错误类别/HTTP 状态码；不复制消息、工具内容或原生错误正文。可与 `http.failed` 的路径、状态和时间对照，区分任务失败与文件接口繁忙。
@@ -477,7 +477,7 @@ nestos-node access --config /srv/nestos-node/config.toml principal remove bob
 
 CLI 分为三层：`cli/` 解析参数和显示结果；`admin/` 编排本地管理、迁移与原子配置事务；`config/inspect` 复用 `config/authorization` 编译器。检查只读打开目录，不创建项目或同步库、不争抢运行中服务的 export 写锁，也不启动 harness。
 
-每次有效修改先完成完整的目录授权校验，再在配置同目录原子替换，并保留 `config.toml.backup-*.toml` 原始备份；新配置与备份权限均为 0600。合作式编辑锁和提交前的原文件核对拒绝并发覆盖；失败不替换原配置。`--dry-run` 只返回预览，不写文件。顶层注释与其他设置保留，inline 数组可能规范化为 TOML 表。共享移除只移除配置，不删除目录文件；被 grants、harness 或启用中的 sync 引用的身份，以及最后一个身份，不可直接删除。
+每次有效修改先完成完整的目录授权校验，再在配置同目录原子替换，并保留 `config.toml.backup-*.toml` 原始备份；新配置与备份权限均为 0600。合作式编辑锁和提交前的原文件核对拒绝并发覆盖；失败不替换原配置。`--dry-run` 只返回预览，不写文件。顶层注释与其他设置保留。导出授权统一写为每个 `[[exports]]` 内的 `grants = [{ principal = "owner", access = "rw", execute = true }]` 数组，避免新增导出后误把后续 `[[exports.grants]]` 归给新目录；旧式嵌套表仍可读取，管理命令保存时会规范化授权数组。共享移除只移除配置，不删除目录文件；被 grants、harness 或启用中的 sync 引用的身份，以及最后一个身份，不可直接删除。
 
 `access init` 保留稳定身份 `owner`、现有凭据、目录上限和执行权限，补齐项目模式原生 profile 的 `principal_id=owner`。原配置缺少稳定节点 ID 时生成并保存一个；已有 ID 不变。存在旧式、非项目模式 harness workspace 时拒绝迁移，需先显式整理其配置。修改完成返回 `restartRequired: true`；重启后客户端重新发现身份和 grant revision。CLI 不自动重启服务，也不修改项目、会话数据。
 

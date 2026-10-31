@@ -2,6 +2,62 @@
 use crate::core::events::{emit, Level};
 use serde_json::{json, Value};
 
+tokio::task_local! { static OPERATION: Value; }
+
+pub(super) async fn scope<T>(context: Value, future: impl std::future::Future<Output = T>) -> T {
+    OPERATION.scope(context, future).await
+}
+
+pub(super) fn operation_context(name: &str, args: &Value) -> Value {
+    json!({"operation":name,"operationId":label(&args["requestId"]),
+        "requestId":label(&args["requestId"]),"profileId":label(&args["profileId"]),
+        "projectId":label(&args["projectId"]),"sessionId":label(&args["sessionId"]),
+        "epoch":label(&args["epoch"])})
+}
+
+pub(super) fn native_context(params: &Value) -> Value {
+    let mut context = OPERATION
+        .try_with(Clone::clone)
+        .unwrap_or_else(|_| json!({}));
+    if let Some(id) = label(&params["threadId"]) {
+        context["sessionId"] = json!(id);
+    }
+    context
+}
+
+pub(super) fn operation_started(context: &Value) {
+    let mut fields = context.clone();
+    fields["stage"] = json!("execution");
+    fields["result"] = json!("started");
+    fields["durationMs"] = json!(0);
+    emit(Level::Info, "harness.operation.started", fields);
+}
+
+pub(super) fn operation_result(context: &Value, receipt: &Value, elapsed: std::time::Duration) {
+    let mut fields = context.clone();
+    fields["stage"] = json!("receipt");
+    fields["outcome"] = receipt["outcome"].clone();
+    fields["result"] = json!(match receipt["outcome"].as_str() {
+        Some("committed") => "success",
+        Some("not-committed") => "failure",
+        _ => "unknown",
+    });
+    if let Some(id) = label(&receipt["result"]["session"]["id"]) {
+        fields["sessionId"] = json!(id);
+    }
+    fields["code"] = json!(label(&receipt["code"]));
+    fields["durationMs"] = json!(elapsed.as_millis() as u64);
+    emit(
+        if receipt["outcome"] == "committed" {
+            Level::Info
+        } else {
+            Level::Warn
+        },
+        "harness.operation.completed",
+        fields,
+    );
+}
+
 pub(super) fn record(message: &Value) {
     if let Some((level, name, fields)) = event(message) {
         emit(level, name, fields);
@@ -51,6 +107,36 @@ fn error_info(error: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn native_calls_keep_operation_identity_across_spawn_without_private_input() {
+        let args = json!({"requestId":"request-1","sessionId":"session-1","profileId":"codex",
+            "projectId":"project-1","epoch":"epoch-1","prompt":"private-prompt",
+            "attachments":[{"content":"private-file"}],"token":"private-token"});
+        let task = tokio::spawn(scope(operation_context("harness_resume", &args), async {
+            tokio::task::yield_now().await;
+            native_context(
+                &json!({"threadId":"session-1","cwd":"private-path","input":"private-prompt"}),
+            )
+        }));
+        let fields = task.await.unwrap();
+        assert_eq!(fields["operationId"], "request-1");
+        assert_eq!(fields["sessionId"], "session-1");
+        assert_eq!(fields["profileId"], "codex");
+        assert_eq!(fields["projectId"], "project-1");
+        assert!(!fields.to_string().contains("private-"));
+        assert_eq!(native_context(&json!({})), json!({}));
+    }
+    #[test]
+    fn malformed_identifiers_cannot_inject_log_content() {
+        let fields = operation_context(
+            "harness_resume",
+            &json!({"requestId":"private\nbody",
+            "sessionId":"private/path","projectId":"x".repeat(129)}),
+        );
+        assert!(fields["requestId"].is_null());
+        assert!(fields["sessionId"].is_null());
+        assert!(fields["projectId"].is_null());
+    }
     #[test]
     fn failed_turn_keeps_identifiers_and_transport_category_without_native_details() {
         let message = json!({"method":"turn/completed","params":{"threadId":"session-1","turn":{"id":"turn-1","status":"failed","items":[{"text":"private-message"}],

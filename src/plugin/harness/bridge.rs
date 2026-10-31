@@ -22,9 +22,10 @@ struct Pending {
     reply: Reply,
     method: String,
     started: Instant,
+    context: Value,
 }
 enum Command {
-    Call(String, Value, Reply),
+    Call(String, Value, Reply, Value),
     Respond(Value, Value, Reply),
 }
 pub struct Bridge {
@@ -32,6 +33,7 @@ pub struct Bridge {
     pub events: Arc<Mutex<Events>>,
     stop: CancellationToken,
     exited: watch::Receiver<bool>,
+    context: Value,
 }
 
 impl Bridge {
@@ -90,17 +92,21 @@ impl Bridge {
         let output = child.stdout.take().ok_or_else(Error::internal)?;
         let (sender, receiver) = mpsc::channel(128);
         let (exit, exited) = watch::channel(false);
+        let context = json!({"profileId":config.id,"processId":std::process::id(),"childPid":child.id(),
+            "projectId":runtime.as_ref().map(|r| &r.project.id),
+            "ownerId":runtime.as_ref().map(|r| &r.project.owner)});
         let bridge = Arc::new(Self {
             sender,
             events: Arc::new(Mutex::new(Events::new())),
             stop: CancellationToken::new(),
             exited,
+            context: context.clone(),
         });
         bridge.events.lock().unwrap().runtime = runtime.clone();
         let events = bridge.events.clone();
         let stop = bridge.stop.clone();
         tokio::spawn(async move {
-            supervise(child, input, output, receiver, events, stop).await;
+            supervise(child, input, output, receiver, events, stop, context).await;
             let _ = exit.send(true);
         });
         if let Err(error) = bridge.call("initialize", json!({"clientInfo":{"name":"itookit-agent","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}})).await {
@@ -125,8 +131,13 @@ impl Bridge {
             return Err(Error::unavailable());
         }
         let (send, receive) = oneshot::channel();
+        let mut context = super::diagnostics::native_context(&params);
+        context
+            .as_object_mut()
+            .unwrap()
+            .extend(self.context.as_object().unwrap().clone());
         self.sender
-            .try_send(Command::Call(method.into(), params, send))
+            .try_send(Command::Call(method.into(), params, send, context))
             .map_err(|_| Error::unavailable())?;
         receive.await.map_err(|_| Error::unavailable())?
     }
@@ -138,6 +149,15 @@ impl Bridge {
         await_reply(receive).await
     }
     pub fn close(&self) {
+        if !self.stop.is_cancelled() {
+            let mut fields = self.context.clone();
+            fields["stage"] = json!("stop-requested");
+            crate::core::events::emit(
+                crate::core::events::Level::Info,
+                "harness.native.stopping",
+                fields,
+            );
+        }
         self.stop.cancel();
     }
     pub async fn drain(&self) {
@@ -177,9 +197,16 @@ async fn supervise(
     receiver: mpsc::Receiver<Command>,
     events: Arc<Mutex<Events>>,
     stop: CancellationToken,
+    context: Value,
 ) {
+    let started = Instant::now();
+    crate::core::events::emit(
+        crate::core::events::Level::Info,
+        "harness.native.started",
+        context.clone(),
+    );
     let pending = Arc::new(Mutex::new(HashMap::new()));
-    pump(input, output, receiver, &pending, &events, &stop).await;
+    let reason = pump(input, output, receiver, &pending, &events, &stop).await;
     // Reclaim this supervisor's process group before reaping its leader.
     if let Some(pid) = child
         .id()
@@ -188,7 +215,22 @@ async fn supervise(
         let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
     }
     let _ = child.kill().await;
-    let clean = child.wait().await.is_ok();
+    let stopped_by_host = stop.is_cancelled();
+    let status = child.wait().await;
+    let clean = status.is_ok();
+    let mut fields = context;
+    fields["stage"] = json!("reaped");
+    fields["result"] = json!(if clean { "success" } else { "failure" });
+    fields["stopRequested"] = json!(stopped_by_host);
+    fields["code"] = json!(reason);
+    fields["reaped"] = json!(clean);
+    fields["exitCode"] = json!(status.as_ref().ok().and_then(|s| s.code()));
+    fields["durationMs"] = json!(started.elapsed().as_millis() as u64);
+    crate::core::events::emit(
+        crate::core::events::Level::Info,
+        "harness.native.stopped",
+        fields,
+    );
     if let Some(runtime) = events.lock().unwrap().runtime.as_ref() {
         runtime.stopped(clean);
     }
@@ -210,18 +252,19 @@ async fn pump(
     pending: &PendingCalls,
     events: &Mutex<Events>,
     stop: &CancellationToken,
-) {
+) -> &'static str {
     let writer = send_commands(input, receiver, pending);
     tokio::pin!(writer);
     let mut line = Vec::new();
     let mut chunk = [0u8; 8192];
     loop {
         tokio::select! {
-            _ = stop.cancelled() => break,
-            _ = &mut writer => break,
+            _ = stop.cancelled() => return "HOST_SHUTDOWN",
+            reason = &mut writer => return reason,
             read = output.read(&mut chunk) => {
-                let Ok(n) = read else { break; }; if n == 0 { break; }
-                if consume(&chunk[..n], &mut line, pending, events).is_err() { break; }
+                let Ok(n) = read else { return "NATIVE_STDOUT_READ_FAILED"; };
+                if n == 0 { return "NATIVE_STDOUT_EOF"; }
+                if consume(&chunk[..n], &mut line, pending, events).is_err() { return "NATIVE_FRAME_INVALID"; }
             }
         }
     }
@@ -231,7 +274,7 @@ async fn send_commands(
     mut input: impl AsyncWrite + Unpin,
     mut receiver: mpsc::Receiver<Command>,
     pending: &PendingCalls,
-) {
+) -> &'static str {
     let mut next = 0u64;
     while let Some(command) = receiver.recv().await {
         let sent = tokio::time::timeout(
@@ -239,10 +282,13 @@ async fn send_commands(
             send_command(command, &mut input, pending, &mut next),
         )
         .await;
-        if !matches!(sent, Ok(Ok(()))) {
-            break;
+        match sent {
+            Ok(Ok(())) => (),
+            Ok(Err(_)) => return "NATIVE_STDIN_WRITE_FAILED",
+            Err(_) => return "NATIVE_STDIN_WRITE_TIMEOUT",
         }
     }
+    "NATIVE_COMMAND_CHANNEL_CLOSED"
 }
 
 fn consume(
@@ -273,10 +319,11 @@ async fn send_command(
     next: &mut u64,
 ) -> Result<(), Error> {
     match command {
-        Command::Call(method, params, reply) => {
+        Command::Call(method, params, reply, mut context) => {
             *next += 1;
+            context["nativeRpcId"] = json!(*next);
             let message = json!({"id":next,"method":method,"params":params});
-            if register(pending, *next, method, reply) {
+            if register(pending, *next, method, reply, context) {
                 write(input, &message).await?;
             }
         }
@@ -294,7 +341,7 @@ async fn send_command(
     Ok(())
 }
 
-fn register(pending: &PendingCalls, id: u64, method: String, reply: Reply) -> bool {
+fn register(pending: &PendingCalls, id: u64, method: String, reply: Reply, context: Value) -> bool {
     let mut pending = pending.lock().unwrap();
     pending.retain(|_, reply| !reply.reply.is_closed());
     if pending.len() >= 128 {
@@ -307,6 +354,7 @@ fn register(pending: &PendingCalls, id: u64, method: String, reply: Reply) -> bo
             reply,
             method,
             started: Instant::now(),
+            context,
         },
     );
     true
@@ -325,14 +373,36 @@ fn dispatch(message: Value, pending: &PendingCalls, events: &Mutex<Events>) -> R
             crate::core::events::emit(
                 crate::core::events::Level::Warn,
                 "harness.native.failed",
-                json!({
-                    "method": reply.method, "rpcCode": message["error"]["code"].as_i64(),
-                    "code": error.code, "durationMs": reply.started.elapsed().as_millis() as u64
-                }),
+                native_result_fields(
+                    &reply,
+                    json!({
+                        "method": reply.method, "rpcCode": message["error"]["code"].as_i64(),
+                        "code": error.code, "stage":"native-reply", "result":"failure",
+                        "durationMs": reply.started.elapsed().as_millis() as u64
+                    }),
+                ),
             );
             Err(error)
         } else {
             let mut result = message["result"].clone();
+            if matches!(
+                reply.method.as_str(),
+                "thread/start"
+                    | "thread/resume"
+                    | "thread/archive"
+                    | "thread/unarchive"
+                    | "thread/delete"
+            ) {
+                crate::core::events::emit(
+                    crate::core::events::Level::Info,
+                    "harness.native.completed",
+                    native_result_fields(
+                        &reply,
+                        json!({"method":reply.method,"stage":"native-reply","result":"success",
+                        "durationMs":reply.started.elapsed().as_millis() as u64}),
+                    ),
+                );
+            }
             if reply.method == "thread/read" && result.is_object() {
                 result["_nestosNodeEventCursor"] = events.lock().unwrap().position();
             }
@@ -341,6 +411,15 @@ fn dispatch(message: Value, pending: &PendingCalls, events: &Mutex<Events>) -> R
         let _ = reply.reply.send(result);
     }
     Ok(())
+}
+
+fn native_result_fields(reply: &Pending, details: Value) -> Value {
+    let mut fields = reply.context.clone();
+    fields
+        .as_object_mut()
+        .unwrap()
+        .extend(details.as_object().unwrap().clone());
+    fields
 }
 
 fn native_error(error: &Value) -> Error {
@@ -369,6 +448,50 @@ fn native_error(error: &Value) -> Error {
 mod diagnostic_tests {
     use super::*;
 
+    #[tokio::test]
+    async fn rejected_resume_keeps_native_and_operation_identifiers_without_prompt_or_paths() {
+        let args = json!({"profileId":"codex","requestId":"request-1","sessionId":"session-1","prompt":"private-prompt"});
+        let context = super::super::diagnostics::scope(
+            super::super::diagnostics::operation_context("harness_resume", &args),
+            async {
+                super::super::diagnostics::native_context(
+                    &json!({"threadId":"session-1","cwd":"private-path"}),
+                )
+            },
+        )
+        .await;
+        let pending: PendingCalls = Arc::default();
+        let (reply, receive) = oneshot::channel();
+        let mut next = 0;
+        send_command(
+            Command::Call(
+                "thread/resume".into(),
+                json!({"threadId":"session-1"}),
+                reply,
+                context,
+            ),
+            &mut tokio::io::sink(),
+            &pending,
+            &mut next,
+        )
+        .await
+        .unwrap();
+        let fields = native_result_fields(
+            &pending.lock().unwrap()[&1],
+            json!({"code":"HARNESS_SESSION_BUSY"}),
+        );
+        assert_eq!(fields["requestId"], "request-1");
+        assert_eq!(fields["nativeRpcId"], 1);
+        assert_eq!(fields["sessionId"], "session-1");
+        assert!(!fields.to_string().contains("private-"));
+        dispatch(json!({"id":1,"error":{"code":-32600,"message":"private-prompt already has an active writer"}}),
+            &pending, &Mutex::new(Events::new())).unwrap();
+        assert_eq!(
+            receive.await.unwrap().unwrap_err().code,
+            "HARNESS_SESSION_BUSY"
+        );
+    }
+
     async fn backpressure_peer(
         mut input: tokio::io::DuplexStream,
         mut output: tokio::io::DuplexStream,
@@ -384,6 +507,7 @@ mod diagnostic_tests {
                 "turn/start".into(),
                 json!({"input":"x".repeat(65536)}),
                 reply,
+                json!({}),
             ))
             .await
             .unwrap();
@@ -412,7 +536,7 @@ mod diagnostic_tests {
         let (sender, receiver) = mpsc::channel(128);
         let pending: PendingCalls = Arc::default();
         let (reply, prior) = oneshot::channel();
-        register(&pending, 99, "thread/read".into(), reply);
+        register(&pending, 99, "thread/read".into(), reply, json!({}));
         let events = Mutex::new(Events::new());
         let stop = CancellationToken::new();
         tokio::time::timeout(Duration::from_secs(2), async {

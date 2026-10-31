@@ -17,28 +17,20 @@ path = "/srv/knowledge"
 access = "rw"
 public = true
 
-[[exports.grants]]
-principal = "alice"
-access = "rw"
-
-[[exports.grants]]
-principal = "bob"
-access = "ro"
+grants = [
+    { principal = "alice", access = "rw" },
+    { principal = "bob", access = "ro" },
+]
 
 [[exports]]
 alias = "project"
 path = "/srv/project"
 access = "rw"
 
-[[exports.grants]]
-principal = "alice"
-access = "rw"
-execute = true
-
-[[exports.grants]]
-principal = "bob"
-access = "ro"
-execute = true
+grants = [
+    { principal = "alice", access = "rw", execute = true },
+    { principal = "bob", access = "ro", execute = true },
+]
 
 [projects]
 root = "/srv/nestos-node-private/projects"

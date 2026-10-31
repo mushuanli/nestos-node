@@ -1,18 +1,68 @@
 //! Configuration mutation policy. File transactions and CLI parsing live elsewhere.
 use super::{migrate, AccessCommand, Credential};
 use crate::config::{exports, model::PrincipalConfig, Config};
-use toml_edit::{value, ArrayOfTables, DocumentMut, Item, Table};
+use toml_edit::{value, Array, ArrayOfTables, DocumentMut, Item, Table};
 
 pub(super) fn apply(doc: &mut DocumentMut, command: AccessCommand) -> Result<(), String> {
     if matches!(command, AccessCommand::Init) {
-        return migrate::apply(doc);
+        migrate::apply(doc)?;
+        return inline_export_grants(doc);
     }
     let config: Config =
         toml::from_str(&doc.to_string()).map_err(|_| "Invalid configuration schema")?;
     if config.principals.is_empty() {
         return Err("Run access init before editing per-principal directory policy".into());
     }
-    dispatch(doc, &config, command)
+    dispatch(doc, &config, command)?;
+    inline_export_grants(doc)
+}
+fn inline_export_grants(doc: &mut DocumentMut) -> Result<(), String> {
+    for export in tables(doc.as_table_mut(), "exports")?.iter_mut() {
+        inline_grants(export);
+    }
+    Ok(())
+}
+fn inline_grants(export: &mut Table) {
+    if let Some(grants) = export.get("grants").and_then(Item::as_array_of_tables) {
+        let mut array = Array::new();
+        let mut comments = String::new();
+        for grant in grants {
+            comments.push_str(&grant_comments(grant));
+            array.push(grant.clone().into_inline_table());
+        }
+        export["grants"] = value(array);
+        if !comments.is_empty() {
+            export
+                .key_mut("grants")
+                .unwrap()
+                .leaf_decor_mut()
+                .set_prefix(comments);
+        }
+    }
+    if let Some(mut key) = export.key_mut("grants") {
+        key.leaf_decor_mut().set_suffix(" ");
+    }
+}
+fn grant_comments(grant: &Table) -> String {
+    let mut result = String::new();
+    let mut retain = |raw: Option<&toml_edit::RawString>| {
+        for line in raw.and_then(|value| value.as_str()).unwrap_or("").lines() {
+            if line.trim_start().starts_with('#') {
+                result.push_str(line.trim_start());
+                result.push('\n');
+            }
+        }
+    };
+    retain(grant.decor().prefix());
+    for (key, item) in grant.iter() {
+        if let Some(key) = grant.key(key) {
+            retain(key.leaf_decor().prefix());
+        }
+        if let Some(value) = item.as_value() {
+            retain(value.decor().suffix());
+        }
+    }
+    result
 }
 fn dispatch(doc: &mut DocumentMut, config: &Config, command: AccessCommand) -> Result<(), String> {
     use AccessCommand::*;

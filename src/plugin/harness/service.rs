@@ -468,7 +468,13 @@ impl Profile {
     async fn read(&self, name: &str, args: Value) -> Result<Value, Error> {
         let started = std::time::Instant::now();
         let result = match self.driver.get() {
-            Ok(driver) => driver.read(name, args.clone()).await,
+            Ok(driver) => {
+                super::diagnostics::scope(
+                    super::diagnostics::operation_context(name, &args),
+                    driver.read(name, args.clone()),
+                )
+                .await
+            }
             Err(error) => Err(error),
         };
         if name == "harness_query" {
@@ -498,10 +504,12 @@ impl Profile {
             Reservation::New(permit) => permit,
         };
         // Execution outlives an HTTP disconnect; queries can confirm a later result.
-        let work = tokio::spawn(
+        let context = super::diagnostics::operation_context(name, &args);
+        let work = tokio::spawn(super::diagnostics::scope(
+            context,
             self.clone()
                 .execute(name.to_owned(), args, id.clone(), permit),
-        );
+        ));
         match tokio::time::timeout(std::time::Duration::from_secs(25), work).await {
             Ok(Ok(value)) => Ok(value),
             _ => Ok(json!({"outcome":"unknown","requestId":id})),
@@ -518,6 +526,8 @@ impl Profile {
         _permit: tokio::sync::OwnedSemaphorePermit,
     ) -> Value {
         let started = std::time::Instant::now();
+        let context = super::diagnostics::operation_context(&name, &args);
+        super::diagnostics::operation_started(&context);
         let mut dispatched = false;
         // Keep serialization through receipt persistence and the driver's settlement callback.
         let (result, _serial) = self.execute_native(&name, &args, &mut dispatched).await;
@@ -528,7 +538,9 @@ impl Profile {
             checkpoint_diagnostic(&id, &args, &result, started.elapsed());
         }
         report_command_result(&name, &id, &args, &result, dispatched, started);
-        self.commit(&id, result, dispatched).await
+        let receipt = self.commit(&id, result, dispatched).await;
+        super::diagnostics::operation_result(&context, &receipt, started.elapsed());
+        receipt
     }
     async fn commit(&self, id: &str, result: Result<Value, Error>, dispatched: bool) -> Value {
         let receipt = receipt(id, result, dispatched);

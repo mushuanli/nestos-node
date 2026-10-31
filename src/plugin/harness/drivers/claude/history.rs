@@ -488,7 +488,9 @@ fn user_item(record: &Value, id: &str, time: &Value) -> Value {
     } else {
         record["message"]["content"].clone()
     };
-    json!([{"id":id,"type":"userMessage","content":content,"turnId":id,"timestamp":time,"status":"completed"}])
+    let kinds = content.as_array().map(|parts| parts.iter().map(|part|
+        if part["type"] == "text" {json!("user.text")} else {json!("user.attachment")}).collect::<Vec<_>>()).unwrap_or_default();
+    json!([{"id":id,"type":"userMessage","content":content,"contentItemKinds":kinds,"turnId":id,"timestamp":time,"status":"completed"}])
 }
 pub fn text(content: &Value) -> String {
     if let Some(text) = content.as_str() {

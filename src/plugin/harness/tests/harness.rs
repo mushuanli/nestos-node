@@ -46,69 +46,6 @@ fn service(root: &Path) -> Harnesses {
 }
 
 #[tokio::test]
-async fn codex_summary_configuration_is_explicit_and_preserves_model_and_speed_defaults() {
-    use nestos_node::harness::config::{CodexConfig, ReasoningSummary};
-    for (summary, expected) in [(Some(ReasoningSummary::Auto), "auto"), (Some(ReasoningSummary::None), "none"), (None, "unset")] {
-        let root = tempfile::tempdir().unwrap();
-        let fixture = root.path().join("codex-fixture.py");
-        std::fs::write(&fixture, include_str!("fixtures/codex-app-server.py")).unwrap();
-        std::fs::set_permissions(&fixture, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let mut settings = config(root.path(), fixture.to_str().unwrap());
-        settings.harnesses[0].codex = summary.map(|reasoning_summary| CodexConfig {reasoning_summary: Some(reasoning_summary)});
-        let service = Harnesses::new(nestos_node::harness::config::validate(&settings).unwrap(), "epoch".into()).unwrap();
-        let created = mutate(&service, "harness_create", "create", json!({"workspaceId":"project"})).await;
-        assert_eq!(created["outcome"], "committed");
-        let result = mutate(&service, "harness_turn", "turn", json!({"sessionId":"session-1",
-            "prompt":format!("fixture:checkpoint-summary-{expected}")})).await;
-        assert_eq!(result["outcome"], "committed");
-        service.close().await;
-    }
-}
-
-#[tokio::test]
-async fn cold_codex_history_recovers_rollout_terminals_without_adopting_the_session() {
-    let root = tempfile::tempdir().unwrap();
-    let service = service(root.path());
-    std::fs::create_dir(root.path().join("sessions")).unwrap();
-    std::fs::write(root.path().join("sessions/native.jsonl"), format!("{}\n{}\n",
-        json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"original-turn"}}),
-        json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"original-turn"}}))).unwrap();
-    std::fs::write(root.path().join("codex-fixture.py"), r#"#!/usr/bin/env python3
-import json, os, sys
-for line in sys.stdin:
-    request = json.loads(line)
-    if request.get('id') is None:
-        continue
-    method = request.get('method')
-    if method not in ('initialize', 'thread/read'):
-        raise RuntimeError('Unexpected native operation')
-    home = os.environ['CODEX_HOME']
-    result = {} if method == 'initialize' else {'thread': {'id':'native', 'cwd':home,
-        'path':home+'/sessions/native.jsonl', 'status':{'type':'notLoaded'}, 'turns':[]}}
-    print(json.dumps({'id':request['id'],'result':result}), flush=True)
-"#).unwrap();
-    let history = service.call("harness_session_read", json!({"profileId":"codex", "sessionId":"native", "toolDetail":"summary"})).await.unwrap();
-    assert_eq!(history["turns"][1], json!({"id":"original-turn","status":"completed","items":[]}));
-    assert_eq!(history["session"]["owned"], false);
-    assert_eq!(history["session"]["status"], "notLoaded");
-    assert!(history["session"]["lastTurnResult"].is_null());
-    let revision = history["session"]["historyRevision"].as_str().unwrap().to_owned();
-    assert_eq!(revision.len(), 64);
-    let info = service.call("harness_session_info", json!({"profileId":"codex","sessionId":"native"})).await.unwrap();
-    assert_eq!(info["session"]["historyRevision"], revision);
-    use std::io::Write;
-    let mut file = std::fs::OpenOptions::new().append(true).open(root.path().join("sessions/native.jsonl")).unwrap();
-    writeln!(file, "{}", json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"Latest external reply"}]}})).unwrap();
-    let info = service.call("harness_session_info", json!({"profileId":"codex","sessionId":"native"})).await.unwrap();
-    assert_ne!(info["session"]["historyRevision"], revision);
-    let updated = service.call("harness_session_read", json!({"profileId":"codex","sessionId":"native","toolDetail":"summary"})).await.unwrap();
-    assert_eq!(updated["turns"][0]["items"][0]["content"][0]["text"], "Latest external reply");
-    assert_eq!(updated["session"]["historyRevision"], info["session"]["historyRevision"]);
-    service.close().await;
-}
-
-
-#[tokio::test]
 async fn event_subscription_survives_idle_driver_replacement_without_pinning_the_process() {
     use futures_util::StreamExt;
     let root = tempfile::tempdir().unwrap();
@@ -359,6 +296,68 @@ async fn codex_queries_expose_runtime_identity_and_reject_stale_command_bindings
         json!({"sessionId":id,"turnId":turn}),
     )
     .await;
+    service.close().await;
+}
+
+#[tokio::test]
+async fn codex_summary_configuration_is_explicit_and_preserves_model_and_speed_defaults() {
+    use nestos_node::harness::config::{CodexConfig, ReasoningSummary};
+    for (summary, expected) in [(Some(ReasoningSummary::Auto), "auto"), (Some(ReasoningSummary::None), "none"), (None, "unset")] {
+        let root = tempfile::tempdir().unwrap();
+        let fixture = root.path().join("codex-fixture.py");
+        std::fs::write(&fixture, include_str!("fixtures/codex-app-server.py")).unwrap();
+        std::fs::set_permissions(&fixture, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut settings = config(root.path(), fixture.to_str().unwrap());
+        settings.harnesses[0].codex = summary.map(|reasoning_summary| CodexConfig {reasoning_summary: Some(reasoning_summary)});
+        let service = Harnesses::new(nestos_node::harness::config::validate(&settings).unwrap(), "epoch".into()).unwrap();
+        let created = mutate(&service, "harness_create", "create", json!({"workspaceId":"project"})).await;
+        assert_eq!(created["outcome"], "committed");
+        let result = mutate(&service, "harness_turn", "turn", json!({"sessionId":"session-1",
+            "prompt":format!("fixture:checkpoint-summary-{expected}")})).await;
+        assert_eq!(result["outcome"], "committed");
+        service.close().await;
+    }
+}
+
+#[tokio::test]
+async fn cold_codex_history_recovers_rollout_terminals_without_adopting_the_session() {
+    let root = tempfile::tempdir().unwrap();
+    let service = service(root.path());
+    std::fs::create_dir(root.path().join("sessions")).unwrap();
+    std::fs::write(root.path().join("sessions/native.jsonl"), format!("{}\n{}\n",
+        json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"original-turn"}}),
+        json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"original-turn"}}))).unwrap();
+    std::fs::write(root.path().join("codex-fixture.py"), r#"#!/usr/bin/env python3
+import json, os, sys
+for line in sys.stdin:
+    request = json.loads(line)
+    if request.get('id') is None:
+        continue
+    method = request.get('method')
+    if method not in ('initialize', 'thread/read'):
+        raise RuntimeError('Unexpected native operation')
+    home = os.environ['CODEX_HOME']
+    result = {} if method == 'initialize' else {'thread': {'id':'native', 'cwd':home,
+        'path':home+'/sessions/native.jsonl', 'status':{'type':'notLoaded'}, 'turns':[]}}
+    print(json.dumps({'id':request['id'],'result':result}), flush=True)
+"#).unwrap();
+    let history = service.call("harness_session_read", json!({"profileId":"codex", "sessionId":"native", "toolDetail":"summary"})).await.unwrap();
+    assert_eq!(history["turns"][1], json!({"id":"original-turn","status":"completed","items":[]}));
+    assert_eq!(history["session"]["owned"], false);
+    assert_eq!(history["session"]["status"], "notLoaded");
+    assert!(history["session"]["lastTurnResult"].is_null());
+    let revision = history["session"]["historyRevision"].as_str().unwrap().to_owned();
+    assert_eq!(revision.len(), 64);
+    let info = service.call("harness_session_info", json!({"profileId":"codex","sessionId":"native"})).await.unwrap();
+    assert_eq!(info["session"]["historyRevision"], revision);
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().append(true).open(root.path().join("sessions/native.jsonl")).unwrap();
+    writeln!(file, "{}", json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"Latest external reply"}]}})).unwrap();
+    let info = service.call("harness_session_info", json!({"profileId":"codex","sessionId":"native"})).await.unwrap();
+    assert_ne!(info["session"]["historyRevision"], revision);
+    let updated = service.call("harness_session_read", json!({"profileId":"codex","sessionId":"native","toolDetail":"summary"})).await.unwrap();
+    assert_eq!(updated["turns"][0]["items"][0]["content"][0]["text"], "Latest external reply");
+    assert_eq!(updated["session"]["historyRevision"], info["session"]["historyRevision"]);
     service.close().await;
 }
 
@@ -1139,5 +1138,162 @@ async fn permanent_deletion_rejects_foreign_spawned_descendants_before_commit() 
         .unwrap();
     assert_eq!(root["session"]["archived"], false);
     assert_eq!(root["session"]["owned"], true);
+    service.close().await;
+}
+
+#[tokio::test]
+async fn steering_uses_exact_active_turn_and_receipts_without_starting_another_turn() {
+    let root = tempfile::tempdir().unwrap();
+    let service = service(root.path());
+    let created = mutate(
+        &service,
+        "harness_create",
+        "create-steer",
+        json!({"workspaceId":"project"}),
+    )
+    .await;
+    let id = created["result"]["session"]["id"].as_str().unwrap();
+    let started = mutate(
+        &service,
+        "harness_turn",
+        "start-steer",
+        json!({"sessionId":id,"prompt":"Start work"}),
+    )
+    .await;
+    let turn = started["result"]["turnId"].as_str().unwrap();
+    let args = json!({"sessionId":id,"turnId":turn,"prompt":"Additional direction"});
+    let accepted = mutate(&service, "harness_steer", "steer-once", args.clone()).await;
+    assert_eq!(accepted["result"]["turnId"], turn);
+    assert_eq!(
+        mutate(&service, "harness_steer", "steer-once", args).await,
+        accepted
+    );
+    let receipt = service
+        .call(
+            "harness_operation",
+            json!({"profileId":"codex","epoch":"epoch","requestId":"steer-once"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(receipt["outcome"], "committed");
+    assert_eq!(receipt["result"]["turnId"], turn);
+    let stale = service.call("harness_steer", json!({"profileId":"codex","epoch":"epoch","requestId":"stale-steer","sessionId":id,"turnId":"old","prompt":"Do not send elsewhere"})).await;
+    assert_eq!(stale.unwrap()["outcome"], "not-committed");
+    service.close().await;
+}
+
+#[tokio::test]
+async fn steering_passes_a_submission_waiting_for_approval_without_releasing_it() {
+    let root = tempfile::tempdir().unwrap();
+    let service = std::sync::Arc::new(service(root.path()));
+    let created = mutate(
+        &service,
+        "harness_create",
+        "create-waiting-steer",
+        json!({"workspaceId":"project"}),
+    )
+    .await;
+    let id = created["result"]["session"]["id"].clone();
+    let (waiting_service, waiting_id) = (service.clone(), id.clone());
+    let waiting = tokio::spawn(async move {
+        mutate(
+            &waiting_service,
+            "harness_turn",
+            "waiting-start",
+            json!({"sessionId":waiting_id,"prompt":"approval-before-start-reply"}),
+        )
+        .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let page = event_support::snapshot(&service, json!({"profileId":"codex"}))
+                .await
+                .unwrap();
+            if !page["requests"].as_array().unwrap().is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        mutate(
+            &service,
+            "harness_steer",
+            "waiting-context",
+            json!({"sessionId":id,"turnId":"turn-1","prompt":"Supplement during a tool approval"}),
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result["outcome"], "committed");
+    assert!(!waiting.is_finished());
+    mutate(
+        &service,
+        "harness_respond",
+        "waiting-approve",
+        json!({"nativeRequestId":"approval-early","response":{"decision":"accept"}}),
+    )
+    .await;
+    assert_eq!(waiting.await.unwrap()["outcome"], "committed");
+    service.close().await;
+}
+
+#[tokio::test]
+async fn native_metrics_separate_last_context_from_total_tokens_and_strip_account_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let service = service(root.path());
+    let created = mutate(
+        &service,
+        "harness_create",
+        "metrics-create",
+        json!({"workspaceId":"project"}),
+    )
+    .await;
+    let id = created["result"]["session"]["id"].clone();
+    mutate(
+        &service,
+        "harness_turn",
+        "metrics-start",
+        json!({"sessionId":id,"prompt":"fixture:metrics"}),
+    )
+    .await;
+    let result = service
+        .call(
+            "harness_session_metrics",
+            json!({"profileId":"codex","sessionId":id}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["metrics"]["contextWindow"]["usedTokens"], 10000);
+    assert_eq!(result["metrics"]["contextWindow"]["limitTokens"], 200000);
+    assert_eq!(
+        result["metrics"]["quota"]["windows"][0]["usedPercent"],
+        25.0
+    );
+    assert_eq!(
+        result["metrics"]["quota"]["windows"][0]["resetsAt"],
+        1800000000000u64
+    );
+    assert!(!result.to_string().contains("private-account"));
+    assert!(result["metrics"]["cost"].is_null());
+    service.close().await;
+}
+
+#[tokio::test]
+async fn session_digest_metadata_is_negotiated_and_does_not_resume_the_session() {
+    let root = tempfile::tempdir().unwrap();
+    let service = service(root.path());
+    assert_eq!(service.profiles()["profiles"][0]["capabilities"]["sessionDigest"], true);
+    let created = mutate(&service, "harness_create", "digest-create", json!({"workspaceId":"project"})).await;
+    let id = created["result"]["session"]["id"].clone();
+    let result = service.call("harness_session_digest", json!({"profileId":"codex","sessionId":id,"metadataOnly":true})).await.unwrap();
+    assert_eq!(result["session"]["id"], id);
+    assert_eq!(result["messages"], json!([]));
+    assert!(result["session"].get("native").is_none());
+    assert!(result["session"].get("usage").is_none());
+    assert_eq!(result["revision"].as_str().unwrap().len(), 64);
     service.close().await;
 }

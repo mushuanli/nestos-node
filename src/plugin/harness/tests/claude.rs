@@ -974,3 +974,147 @@ async fn stopping_the_native_process_releases_an_unacknowledged_worker_without_a
     assert_eq!(result["outcome"], "unknown");
     assert!(result.get("result").is_none());
 }
+
+#[tokio::test]
+async fn native_metrics_read_context_and_latest_native_estimate_without_summing_result_totals() {
+    let root = tempfile::tempdir().unwrap();
+    let service = fixture(root.path());
+    let created = mutate(
+        &service,
+        "harness_create",
+        "metrics-create",
+        json!({"workspaceId":"workspace"}),
+    )
+    .await;
+    let id = created["result"]["session"]["id"].clone();
+    mutate(
+        &service,
+        "harness_turn",
+        "metrics-turn",
+        json!({"sessionId":id,"prompt":"metrics-report"}),
+    )
+    .await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let value = service
+                .call(
+                    "harness_session_metrics",
+                    json!({"profileId":"claude","sessionId":id}),
+                )
+                .await
+                .unwrap();
+            if value["metrics"]["cost"].is_object() {
+                break value;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(result["metrics"]["contextWindow"]["usedTokens"], 1234);
+    assert_eq!(result["metrics"]["contextWindow"]["limitTokens"], 200000);
+    assert_eq!(result["metrics"]["cost"]["amountUsd"], 0.123);
+    assert_eq!(result["metrics"]["cost"]["kind"], "native-estimate");
+    assert_eq!(
+        result["metrics"]["quota"]["windows"][0]["usedPercent"],
+        80.0
+    );
+    let again = service
+        .call(
+            "harness_session_metrics",
+            json!({"profileId":"claude","sessionId":id}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(again["metrics"]["cost"]["amountUsd"], 0.123);
+    service.close().await;
+}
+
+#[tokio::test]
+async fn streaming_steering_preserves_the_active_turn_and_does_not_approve_a_waiting_tool() {
+    let root = tempfile::tempdir().unwrap();
+    let service = fixture(root.path());
+    let created = mutate(
+        &service,
+        "harness_create",
+        "steer-create",
+        json!({"workspaceId":"workspace"}),
+    )
+    .await;
+    let id = created["result"]["session"]["id"].clone();
+    let started = mutate(
+        &service,
+        "harness_turn",
+        "steer-start",
+        json!({"sessionId":id,"prompt":"approval"}),
+    )
+    .await;
+    let turn = started["result"]["turnId"].clone();
+    let result = mutate(
+        &service,
+        "harness_steer",
+        "steer-context",
+        json!({"sessionId":id,"turnId":turn,"prompt":"Additional direction"}),
+    )
+    .await;
+    assert_eq!(result["outcome"], "committed");
+    assert_eq!(result["result"]["turnId"], turn);
+    assert_eq!(result["result"]["targetTurnId"], turn);
+    let state = call(&service, "harness_session_info", json!({"sessionId":id})).await;
+    assert_eq!(state["session"]["activeTurnId"], turn);
+    assert_eq!(state["session"]["status"], "active");
+    let events = event_support::snapshot(&service, json!({"profileId":"claude"}))
+        .await
+        .unwrap();
+    assert!(!events["requests"].as_array().unwrap().is_empty());
+    let replay = mutate(
+        &service,
+        "harness_steer",
+        "steer-context",
+        json!({"sessionId":id,"turnId":turn,"prompt":"Additional direction"}),
+    )
+    .await;
+    assert_eq!(replay, result);
+    service.close().await;
+}
+#[tokio::test]
+async fn streaming_steering_reports_a_native_next_turn_when_the_original_finishes_before_acknowledgement(
+) {
+    let root = tempfile::tempdir().unwrap();
+    let service = fixture(root.path());
+    let created = mutate(
+        &service,
+        "harness_create",
+        "race-create",
+        json!({"workspaceId":"workspace"}),
+    )
+    .await;
+    let id = created["result"]["session"]["id"].clone();
+    let started = mutate(
+        &service,
+        "harness_turn",
+        "race-start",
+        json!({"sessionId":id,"prompt":"wait"}),
+    )
+    .await;
+    let turn = started["result"]["turnId"].clone();
+    let result = mutate(
+        &service,
+        "harness_steer",
+        "race-context",
+        json!({"sessionId":id,"turnId":turn,"prompt":"steer-after-result"}),
+    )
+    .await;
+    assert_eq!(result["outcome"], "committed");
+    assert_eq!(result["result"]["targetTurnId"], turn);
+    assert_ne!(result["result"]["turnId"], turn);
+    assert!(result["result"]["turnId"].is_string());
+    let receipt = call(
+        &service,
+        "harness_operation",
+        json!({"epoch":"epoch","requestId":"race-context"}),
+    )
+    .await;
+    assert_eq!(receipt, result);
+    service.close().await;
+}

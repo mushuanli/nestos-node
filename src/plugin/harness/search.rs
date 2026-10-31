@@ -182,7 +182,7 @@ pub(super) fn search_text(item: &Value, prompt: bool) -> String {
     }
     displayed_text(item)
 }
-fn context_kind(kind: &str) -> bool {
+pub(super) fn context_kind(kind: &str) -> bool {
     matches!(
         kind,
         "agents_md.instructions"

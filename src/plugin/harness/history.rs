@@ -281,7 +281,7 @@ fn item(record: &Value) -> Option<Value> {
 }
 
 fn message_item(payload: &Value, role: &str) -> Value {
-    let mut item = json!({"type":if role=="user" {"userMessage"} else {"agentMessage"},"content":payload["content"]});
+    let mut item = json!({"type":if role=="user" {"userMessage"} else {"agentMessage"},"content":payload["content"],"phase":payload["phase"]});
     let kinds = &payload["internal_chat_message_metadata_passthrough"]["content_item_kinds"];
     if role == "user"
         && kinds.as_array().is_some_and(|kinds| {

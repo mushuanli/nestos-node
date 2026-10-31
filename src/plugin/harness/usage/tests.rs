@@ -186,3 +186,19 @@ fn cached_reads_only_authorize_new_records_and_invalid_tokens_remain_partial() {
     assert_eq!(value["totals"]["inputTokens"], 100);
     assert_eq!(count.load(Ordering::Relaxed), 2);
 }
+
+#[test]
+fn historical_context_uses_last_request_instead_of_cumulative_tokens_and_clears_unknown_capacity() {
+    let reader = Reader::default();
+    let mut file = tempfile::tempfile().unwrap();
+    let mut record = usage(900000, 4000, 10000, 1000);
+    record["payload"]["info"]["model_context_window"] = json!(200000);
+    record["payload"]["info"]["last_token_usage"]["total_tokens"] = json!(12000);
+    append(&mut file, &record);
+    let value = read(&reader, &file, "context", Kind::Codex);
+    assert_eq!(value["contextWindow"]["usedTokens"], 12000);
+    assert_eq!(value["contextWindow"]["limitTokens"], 200000);
+    record["payload"]["info"]["model_context_window"] = Value::Null;
+    append(&mut file, &record);
+    assert!(read(&reader, &file, "context", Kind::Codex)["contextWindow"].is_null());
+}

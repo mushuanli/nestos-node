@@ -23,6 +23,14 @@ pub fn consume(context: &mut Context, frame: Value) -> Result<(), Error> {
         Some("system") => super::system::consume(context, &frame),
         Some("user") if frame["parent_tool_use_id"].is_null() => acknowledge(context, &frame),
         Some("assistant") if frame["parent_tool_use_id"].is_null() => assistant(context, &frame),
+        Some("rate_limit_event") => {
+            if let Some(quota) = super::super::metrics::claude_quota(&frame["rate_limit_info"]) {
+                let mut session = context.session.lock().unwrap();
+                session["metrics"]["quota"] = quota;
+                session["metrics"]["observedAt"] = json!(chrono::Utc::now().timestamp_millis());
+            }
+            Ok(())
+        }
         Some("result") => complete(context, &frame),
         Some("control_request") => permission(context, frame),
         Some("control_cancel_request") => resolve(context, &frame["request_id"]),
@@ -62,6 +70,21 @@ pub(super) fn push(context: &Context, method: &str, params: Value) -> Result<(),
         .push(json!({"method":method,"params":params}))
 }
 fn acknowledge(context: &mut Context, frame: &Value) -> Result<(), Error> {
+    if let Some(id) = frame["uuid"].as_str() {
+        if let Some(target) = context.steering.remove(id) {
+            return acknowledge_steer(context, frame, id, &target);
+        }
+        if id != context.turn
+            && context
+                .items
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|item| item["id"] == id)
+        {
+            return Ok(());
+        }
+    }
     let Some(id) = frame["uuid"].as_str().filter(|id| *id == context.turn) else {
         return tool_results(context, frame);
     };
@@ -76,6 +99,42 @@ fn acknowledge(context: &mut Context, frame: &Value) -> Result<(), Error> {
         context,
         "item/completed",
         json!({"threadId":context.id,"turnId":id,"item":item}),
+    )
+}
+fn acknowledge_steer(
+    context: &mut Context,
+    frame: &Value,
+    id: &str,
+    target: &str,
+) -> Result<(), Error> {
+    if context.session.lock().unwrap()["status"] != "active" {
+        context.turn = id.into();
+        context.interrupted = false;
+        context.command = false;
+        context.command_output = false;
+        {
+            let mut session = context.session.lock().unwrap();
+            session["status"] = json!("active");
+            session["activeTurnId"] = json!(id);
+        }
+        push(
+            context,
+            "turn/started",
+            json!({"threadId":context.id,"turn":{"id":id}}),
+        )?;
+    }
+    let turn = context.turn.clone();
+    if let Some(reply) = context.pending.remove(id) {
+        let _ = reply.send(Ok(json!({"turnId":turn,"targetTurnId":target})));
+    }
+    update_title(context, &frame["message"]["content"]);
+    let item =
+        json!({"id":id,"type":"userMessage","content":frame["message"]["content"],"turnId":turn});
+    context.remember(item.clone());
+    push(
+        context,
+        "item/completed",
+        json!({"threadId":context.id,"turnId":turn,"item":item}),
     )
 }
 fn update_title(context: &Context, content: &Value) {
@@ -172,6 +231,10 @@ fn complete(context: &mut Context, frame: &Value) -> Result<(), Error> {
         let _ = reply.send(Ok(json!({"turnId":context.turn})));
     }
     let mut session = context.session.lock().unwrap();
+    if let Some(cost) = super::super::metrics::cost(&frame["total_cost_usd"]) {
+        session["metrics"]["cost"] = cost;
+        session["metrics"]["observedAt"] = json!(chrono::Utc::now().timestamp_millis());
+    }
     session["status"] = json!("idle");
     session["activeTurnId"] = Value::Null;
     let result = if context.interrupted {

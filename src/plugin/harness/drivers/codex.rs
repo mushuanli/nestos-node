@@ -85,6 +85,7 @@ impl Codex {
         match name {
             "harness_query" => self.query(&bridge, &args).await,
             "harness_commands" => self.commands(&bridge, &args).await,
+            "harness_session_metrics" => self.metrics(&bridge, &args).await,
             "harness_models" => self.models(&bridge, &args).await,
             "harness_session_search" => super::search::search(self, &bridge, &args).await,
             "harness_sessions" => self.sessions(&bridge, &args).await,
@@ -99,10 +100,57 @@ impl Codex {
                 if let Some(revision) = self.history_revision(&thread).await? {
                     session["historyRevision"] = json!(revision);
                 }
-                super::usage::attach(&mut session, self.thread_usage(&thread).await);
+                if args["digestProjection"] != true {
+                    super::usage::attach(&mut session, self.thread_usage(&thread).await);
+                }
                 Ok(json!({"session":session}))
             }
             _ => Err(Error::unsupported()),
+        }
+    }
+    async fn metrics(&self, bridge: &Bridge, args: &Value) -> Result<Value, Error> {
+        let started = std::time::Instant::now();
+        let id = string(args, "sessionId")?;
+        let thread = self.summary(bridge, id).await?;
+        let mut metrics = super::metrics::empty();
+        self.metrics_context(bridge, &thread, &mut metrics).await;
+        Self::metrics_quota(bridge, &mut metrics).await;
+        super::metrics::report(args, &metrics, started);
+        Ok(json!({"sessionId":id,"metrics":metrics}))
+    }
+    async fn metrics_context(&self, bridge: &Bridge, thread: &Value, metrics: &mut Value) {
+        let live = bridge
+            .events
+            .lock()
+            .unwrap()
+            .context_usage(thread["id"].as_str().unwrap_or_default());
+        if let Some(context) = live {
+            metrics["contextWindow"] = context;
+            return;
+        }
+        match self.thread_usage(thread).await {
+            Ok(usage) => {
+                if usage["contextWindow"].is_object() {
+                    metrics["contextWindow"] = usage["contextWindow"].clone();
+                }
+            }
+            Err(error) => metrics["errors"]["context"] = json!(error.code),
+        }
+    }
+    async fn metrics_quota(bridge: &Bridge, metrics: &mut Value) {
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            bridge.call("account/rateLimits/read", json!({})),
+        )
+        .await
+        .unwrap_or_else(|_| Err(Error::timed_out()));
+        match result {
+            Ok(raw) => {
+                if let Some(quota) = super::metrics::codex_quota_response(&raw) {
+                    metrics["quota"] = quota;
+                }
+            }
+            Err(error) => metrics["errors"]["quota"] = json!(error.code),
         }
     }
     pub(super) async fn sessions(&self, bridge: &Bridge, args: &Value) -> Result<Value, Error> {
@@ -177,6 +225,7 @@ impl Codex {
             "harness_rename" | "harness_archive" | "harness_unarchive" | "harness_delete" => {
                 self.manage(bridge, name, args).await
             }
+            "harness_steer" => self.steer(bridge, args).await,
             "harness_turn" => self.turn(bridge, args).await,
             "harness_command" => self.command(bridge, args).await,
             "harness_interrupt" => {
@@ -229,6 +278,25 @@ impl Codex {
             return Err(Error::forbidden("HARNESS_SESSION_NOT_OWNED"));
         }
         Ok(())
+    }
+    async fn steer(&self, bridge: &Bridge, args: &Value) -> Result<Value, Error> {
+        let id = string(args, "sessionId")?;
+        self.require_owned(id).await?;
+        let turn_id = string(args, "turnId")?;
+        let prompt = string(args, "prompt")?;
+        let input = super::attachments::input(prompt, &args["attachments"])?;
+        let result = bridge
+            .persistent_call(
+                "turn/steer",
+                json!({
+                    "threadId": id, "expectedTurnId": turn_id, "input": input
+                }),
+            )
+            .await?;
+        if result["turnId"] != turn_id {
+            return Err(Error::internal());
+        }
+        Ok(json!({"turnId": turn_id}))
     }
     async fn turn(&self, bridge: &Bridge, args: &Value) -> Result<Value, Error> {
         let id = string(args, "sessionId")?;
@@ -415,7 +483,7 @@ impl Codex {
         }
         session["writerLock"] = super::writer_lock::inspect(&self.config.home, id);
         attach_recovery(bridge, &mut session);
-        if !args["cursor"].is_string() {
+        if !args["cursor"].is_string() && args["digestProjection"] != true {
             super::usage::attach(&mut session, self.thread_usage(&thread).await);
         }
         let mut result =
@@ -616,7 +684,7 @@ impl HarnessDriver for Codex {
         json!({"id":self.config.id,"kind":self.config.kind,
             "workspaces":self.config.workspaces.iter().map(|w| json!({"id":w.id})).collect::<Vec<_>>(),
             "projectRuntime":self.config.projects,
-            "capabilities":{"executionRecovery":true,"models":true,"slashCommands":true,"commandQueries":true,"usage":true,"history":true,"create":true,"resume":true,"interrupt":true,"interactions":true,"fork":true,"checkpointFork":true,"search":true,"searchPrompts":true,"searchKeywords":true,"rename":true,"archive":true,"unarchive":true,"delete":true,"attachments":["text","image"]}})
+            "capabilities":{"executionRecovery":true,"metrics":true,"models":true,"slashCommands":true,"commandQueries":true,"usage":true,"history":true,"create":true,"resume":true,"interrupt":true,"steer":true,"interactions":true,"fork":true,"checkpointFork":true,"search":true,"searchPrompts":true,"searchKeywords":true,"rename":true,"archive":true,"unarchive":true,"delete":true,"attachments":["text","image"]}})
     }
     fn read<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, Result<Value, Error>> {
         Box::pin(async move { self.read(name, args).await })

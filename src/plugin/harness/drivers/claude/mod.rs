@@ -71,6 +71,40 @@ impl Claude {
         .await
         .map_err(|_| Error::internal())?
     }
+    async fn metrics(&self, args: &Value) -> Result<Value, Error> {
+        let started = std::time::Instant::now();
+        let id = string(args, "sessionId")?;
+        let session = self.session(id).await?;
+        let mut metrics = session
+            .get("metrics")
+            .cloned()
+            .unwrap_or_else(super::metrics::empty);
+        let Some(process) = self.sessions.get(id).await else {
+            return Ok(json!({"sessionId":id,"metrics":metrics}));
+        };
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            process.control(json!({"subtype":"get_context_usage"})),
+        )
+        .await
+        {
+            Ok(Ok(raw)) => {
+                if let Some(value) = super::metrics::context(&raw["totalTokens"], &raw["maxTokens"])
+                {
+                    metrics["contextWindow"] = value;
+                }
+            }
+            result => {
+                metrics["errors"]["context"] = json!(match result {
+                    Ok(Err(error)) => error.code,
+                    _ => "ETIMEDOUT",
+                });
+            }
+        }
+        metrics["observedAt"] = json!(chrono::Utc::now().timestamp_millis());
+        super::metrics::report(args, &metrics, started);
+        Ok(json!({"sessionId":id,"metrics":metrics}))
+    }
     async fn session(&self, id: &str) -> Result<Value, Error> {
         if !history::uuid(id) {
             return Err(Error::invalid());
@@ -123,7 +157,7 @@ impl Claude {
             let items = self.live_items(id).await;
             json!({"session":session,"turns":[{"id":null,"items":items}],"nextCursor":null})
         };
-        if !args["cursor"].is_string() {
+        if !args["cursor"].is_string() && args["digestProjection"] != true {
             super::usage::attach(&mut session, self.usage(args).await);
         }
         result["session"] = session;
@@ -269,6 +303,23 @@ impl Claude {
             .await
             .ok_or_else(|| Error::forbidden("HARNESS_NOT_OWNED"))
     }
+    async fn steer(&self, args: &Value) -> Result<Value, Error> {
+        let process = self.owned(string(args, "sessionId")?).await?;
+        let target = string(args, "turnId")?;
+        if process.session.lock().unwrap()["activeTurnId"] != target {
+            return Err(Error::busy());
+        }
+        let prompt = string(args, "prompt")?;
+        let input = crate::harness::attachments::input(prompt, &args["attachments"])?;
+        process
+            .steer(
+                &uuid()?,
+                target,
+                inputs(&input)?,
+                args["requestId"].as_str(),
+            )
+            .await
+    }
     async fn turn(&self, args: &Value) -> Result<Value, Error> {
         let id = string(args, "sessionId")?;
         let process = self.owned(id).await?;
@@ -362,6 +413,7 @@ impl Claude {
     async fn read_command(&self, name: &str, args: &Value) -> Result<Value, Error> {
         match name {
             "harness_query" => self.query(args).await,
+            "harness_session_metrics" => self.metrics(args).await,
             "harness_models" => self.models(args).await,
             "harness_commands" => self.commands(args).await,
             "harness_sessions" => self.list(args).await,
@@ -369,7 +421,7 @@ impl Claude {
             "harness_session_usage" => self.usage(args).await,
             "harness_session_info" => {
                 let mut session = self.session(string(args, "sessionId")?).await?;
-                super::usage::attach(&mut session, self.usage(args).await);
+                if args["digestProjection"] != true {super::usage::attach(&mut session, self.usage(args).await);}
                 Ok(json!({"session":session}))
             }
             "harness_session_search" => self.search(args).await,
@@ -386,6 +438,7 @@ impl Claude {
                 self.attach(self.session(string(args, "sessionId")?).await?, true)
                     .await
             }
+            "harness_steer" => self.steer(args).await,
             "harness_turn" => self.turn(args).await,
             "harness_command" => self.command(args).await,
             "harness_respond" => self.respond(args).await,
@@ -410,7 +463,7 @@ impl HarnessDriver for Claude {
     }
     fn descriptor(&self) -> Value {
         json!({"id":self.config.id,"kind":"claude","workspaces":self.config.workspaces.iter().map(|w|json!({"id":w.id})).collect::<Vec<_>>(),"projectRuntime":self.config.projects,
-        "capabilities":{"models":true,"slashCommands":true,"commandQueries":true,"usage":true,"history":true,"create":true,"resume":true,"interrupt":true,"interactions":true,"search":true,"searchPrompts":true,"searchKeywords":true,"fork":false,"rename":false,"archive":false,"unarchive":false,"attachments":["text","image"]}})
+        "capabilities":{"metrics":true,"models":true,"slashCommands":true,"commandQueries":true,"usage":true,"history":true,"create":true,"resume":true,"interrupt":true,"steer":true,"interactions":true,"search":true,"searchPrompts":true,"searchKeywords":true,"fork":false,"rename":false,"archive":false,"unarchive":false,"attachments":["text","image"]}})
     }
     fn read<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, Result<Value, Error>> {
         Box::pin(async move {

@@ -81,6 +81,14 @@ impl Events {
     pub fn forget_command(&mut self, thread: &str, operation: &str) {
         self.commands.forget(thread, operation);
     }
+    pub fn context_usage(&self, thread: &str) -> Option<Value> {
+        let (_, event, _, at) = self.entries.iter().rev().find(|(_, event, _, _)| {
+            event["method"] == "thread/tokenUsage/updated" && event["params"]["threadId"] == thread
+        })?;
+        let mut value = super::metrics::codex_context(&event["params"]["tokenUsage"]).unwrap_or(Value::Null);
+        if value.is_object() {value["observedAt"] = json!(at); }
+        Some(value)
+    }
     pub fn runtime_metadata(&self, thread: &str) -> Value {
         let mut value = json!({});
         let mut lifecycle = false;

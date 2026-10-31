@@ -174,6 +174,10 @@ fn content_items(event: &Value, cursor: &mut Cursor, role: &str, seq: u64) -> Ve
                 format!("dsh-{seq}-{index}")
             };
             let mut value = item(block, &id, role, &cursor.turn, &event["time"])?;
+            if role == "userMessage" && block["type"] == "text" && value["text"].is_string() {
+                value["content"] = json!([{"type":"text","text":value["text"]}]);
+                value["contentItemKinds"] = json!(["user.text"]);
+            }
             tool_result(&mut value, block, cursor);
             Some(value)
         })

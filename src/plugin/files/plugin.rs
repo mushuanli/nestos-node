@@ -68,10 +68,14 @@ impl NodePlugin for Files {
 fn seq_routes() -> Router<Arc<State>> {
     Router::new()
         .route("/v1/fs/:alias/seq/snapshot", post(handlers::seq::snapshot))
+        .route("/v1/fs/:alias/seq/query", post(handlers::seq::query))
+        .route("/v1/fs/:alias/seq/body", post(handlers::seq::body))
+        .route("/v1/fs/:alias/seq/body/put", post(handlers::seq::put_body))
         .route(
             "/v1/fs/:alias/seq/transaction",
             post(handlers::seq::transaction),
         )
+        .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
 }
 fn operation_routes() -> Router<Arc<State>> {
     Router::new()

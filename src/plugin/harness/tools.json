@@ -128,6 +128,62 @@
       "openWorldHint": true,
       "readOnlyHint": true
     },
+    "description": "Read provenance-filtered user prompts and visible assistant text without reasoning or tools; no model invocation. Unknown user provenance is explicitly omitted.",
+    "inputSchema": {
+      "dependentRequired": {
+        "projectId": [
+          "revision"
+        ],
+        "readOnly": [
+          "projectId",
+          "revision"
+        ],
+        "revision": [
+          "projectId"
+        ]
+      },
+      "properties": {
+        "cursor": {
+          "type": "string"
+        },
+        "profileId": {
+          "description": "Authorized identifier from harness_profiles.",
+          "type": "string"
+        },
+        "projectId": {
+          "description": "Identifier from project_list. Project context also requires revision; non-legacy principals require project context.",
+          "type": "string"
+        },
+        "readOnly": {
+          "type": "boolean"
+        },
+        "revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "string"
+        },
+        "metadataOnly": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "profileId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "name": "harness_session_digest"
+  },
+  {
+    "annotations": {
+      "openWorldHint": true,
+      "readOnlyHint": true
+    },
     "description": "Read session metadata without loading history or resuming execution",
     "inputSchema": {
       "dependentRequired": {
@@ -1345,5 +1401,155 @@
       "type": "object"
     },
     "name": "harness_respond"
+  },
+  {
+    "annotations": {
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Append context to the exact active native turn without starting another turn",
+    "inputSchema": {
+      "dependentRequired": {
+        "projectId": [
+          "revision"
+        ],
+        "readOnly": [
+          "projectId",
+          "revision"
+        ],
+        "revision": [
+          "projectId"
+        ]
+      },
+      "properties": {
+        "attachments": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "maxLength": 524288,
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "text",
+                  "image"
+                ]
+              },
+              "mimeType": {
+                "type": "string"
+              },
+              "name": {
+                "maxLength": 256,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "content"
+            ],
+            "type": "object"
+          },
+          "maxItems": 5,
+          "type": "array"
+        },
+        "epoch": {
+          "description": "Use harness_profiles.epoch for harness operations; /v1/capabilities.processEpoch for project_exec.",
+          "type": "string"
+        },
+        "profileId": {
+          "description": "Authorized identifier from harness_profiles.",
+          "type": "string"
+        },
+        "projectId": {
+          "description": "Identifier from project_list. Project context also requires revision; non-legacy principals require project context.",
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "readOnly": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "description": "Stable mutation identifier. Reuse it only for the same operation; receipts are scoped to the current epoch.",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "profileId",
+        "epoch",
+        "requestId",
+        "sessionId",
+        "prompt",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "name": "harness_steer"
+  },
+  {
+    "annotations": {
+      "openWorldHint": true,
+      "readOnlyHint": true
+    },
+    "description": "Read native context-window observations, quota windows and native cost estimates without starting or resuming a turn",
+    "inputSchema": {
+      "dependentRequired": {
+        "projectId": [
+          "revision"
+        ],
+        "readOnly": [
+          "projectId",
+          "revision"
+        ],
+        "revision": [
+          "projectId"
+        ]
+      },
+      "properties": {
+        "profileId": {
+          "description": "Authorized identifier from harness_profiles.",
+          "type": "string"
+        },
+        "projectId": {
+          "description": "Identifier from project_list. Project context also requires revision; non-legacy principals require project context.",
+          "type": "string"
+        },
+        "readOnly": {
+          "type": "boolean"
+        },
+        "revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string",
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "profileId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "name": "harness_session_metrics"
   }
 ]

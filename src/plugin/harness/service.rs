@@ -108,6 +108,7 @@ impl Harnesses {
             .map(|config| {
                 let mut descriptor = self.profiles[&config.id].driver.descriptor();
                 descriptor["capabilities"]["commandOutputs"] = json!(true);
+                descriptor["capabilities"]["sessionDigest"] = json!(descriptor["capabilities"]["history"] == true);
                 if !config.aliases.is_empty() {
                     descriptor["aliases"] = json!(config.aliases);
                 }
@@ -183,6 +184,24 @@ impl Harnesses {
         name: &str,
         args: Value,
     ) -> Result<Value, Error> {
+        if name == "harness_session_digest" {
+            let operation_id = super::digest::operation_id();
+            let mut read_args = args.clone();
+            read_args["requestId"] = json!(operation_id);
+            read_args["toolDetail"] = json!("summary");
+            read_args["digestProjection"] = json!(true);
+            let started = std::time::Instant::now();
+            let metadata_only = args["metadataOnly"] == true;
+            let result = profile.read(if metadata_only {"harness_session_info"} else {"harness_session_read"}, read_args).await
+                .and_then(|mut history| {
+                    if metadata_only {history["turns"] = json!([]); history["nextCursor"] = Value::Null;}
+                    super::digest::project(history, &args)
+                });
+            crate::core::events::emit(crate::core::events::Level::Info, "harness.digest.result",
+                json!({"operation":"harness.session.digest","operationId":operation_id,"stage":"project","result":if result.is_ok(){"success"}else{"failure"},
+                    "sessionId":args["sessionId"],"code":result.as_ref().err().map(|e|e.code),"durationMs":started.elapsed().as_millis()}));
+            return result;
+        }
         let referenced = output_mode(name, &args)?;
         if name == "harness_operation" {
             self.check_epoch(&args)?;
@@ -586,6 +605,11 @@ impl Profile {
         name: &str,
         args: &Value,
     ) -> Result<(Value, Option<MutationGuard>), Error> {
+        if name == "harness_steer"
+            && self.driver.get()?.descriptor()["capabilities"]["steer"] != true
+        {
+            return Err(Error::unsupported());
+        }
         if name == "harness_fork"
             && args.get("lastTurnId").is_some()
             && self.driver.get()?.descriptor()["capabilities"]["checkpointFork"] != true
@@ -597,7 +621,11 @@ impl Profile {
         let query = descriptor
             .as_ref()
             .is_some_and(|row| row["execution"] == "query");
-        let serial = if matches!(name, "harness_respond" | "harness_interrupt") || query {
+        let serial = if matches!(
+            name,
+            "harness_respond" | "harness_interrupt" | "harness_steer"
+        ) || query
+        {
             None
         } else {
             Some(self.mutations.acquire(name, args).await?)
@@ -824,6 +852,7 @@ fn is_mutation(name: &str) -> bool {
             | "harness_archive"
             | "harness_unarchive"
             | "harness_delete"
+            | "harness_steer"
             | "harness_turn"
             | "harness_command"
             | "harness_interrupt"

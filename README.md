@@ -185,9 +185,13 @@ retained_files = 5
 
 ## SQLite SeqFile
 
-在 export 内通过 `POST /v1/fs/:alias/seq/snapshot` 读取 `{path}` 指定的 `.seq`，返回 `{revision,entries:[{key,value}]}`。`POST /v1/fs/:alias/seq/transaction` 使用 `X-Operation-Id`，请求为 `{path,expectedRevision,changes}`：变更项为 `{action:"set",key,value}` 或 `{action:"delete",key}`。创建时 revision 为 null；更新时必须携带读取的 revision。
+推荐使用 `POST /v1/fs/:alias/seq/query`，请求 `{path,selection}`。selection 为 `{keys:[...]}`（最多256个）或 `{prefix?,after?,limit?}`（默认100、最多1000），可带 `expectedRevision`。响应 `{revision,entries:[{key,value}],next}`；后续页带原 revision，变更时返回 ECONFLICT。prefix 按字面主键范围查询，不解释 `%`/`_`。只读取请求记录，不下载整个 SQLite。旧 `/seq/snapshot` 保留为兼容入口，最多1000条和16 MiB，超限返回 SEQ_RESPONSE_LIMIT。
 
-每个 SeqFile 是可复制的 SQLite 数据库。服务端执行结构化单文件事务，再复用条件文件替换与持久回执；不接受任意 SQL。读取缺失文件不创建文件，父目录需提前创建。只读 export 禁止写入。每文件最多 16 MiB、每批最多 256 项、key 最多 1024 字节，HTTP 请求体仍有独立上限。并发冲突返回 ECONFLICT；unknown 结果使用现有操作查询确认，不自动重放。此接口与 sync 对象库无关，不提供跨 SeqFile 事务。
+`POST /v1/fs/:alias/seq/transaction` 使用 `X-Operation-Id`，请求 `{path,expectedRevision,changes}`；变更项为 `{action:"set",key,value}` 或 `{action:"delete",key}`。创建 revision 为 null，已有数据库必须带当前 revision。已有数据库以原生 SQLite 事务原地更新，使用 FULL 同步和回滚日志；仅首次创建原子发布文件。不接受任意 SQL，无跨文件事务。数据库总大小不受原来的16 MiB整文件限制；每批最多256项、key最多1024字节、响应最多16 MiB，Seq路由请求体最多8 MiB。capability 的 `files.seq.query/nativeTransactions/bodies` 声明新能力。
+
+`POST /v1/fs/:alias/seq/body` 接收 `{path,sha256}` 读取正文（缺失为 `{text:null}`）；`POST /v1/fs/:alias/seq/body/put` 使用修改回执协议，接收 `{path,sha256,text}`，正文最多1 MiB UTF-8，摘要必须匹配。正文保存在 `<path>.assets/<sha256>.json`，同摘要不可变，只能在同一授权范围内访问。先保存并核验正文，再事务提交引用；无引用文件暂不自动删除，备份必须包含正文目录。看板适配在超过8 KiB时使用此能力。
+
+读缺失库不创建文件，父目录需提前准备；只读export拒绝修改。写入文件必须由当前进程用户所有、仅一条硬链接且非组/其他用户可写，数据库和旁路日志拒绝符号链接。路径通过目录描述符约束，`.nestos` 是节点保留目录，普通SeqFile应使用其他授权路径。更新与上传/重命名共享修订锁；不支持其他进程绕过节点写门并发修改文件。unknown 查询原操作回执，不自动重放；提交错误不伪装为确认未提交。通过普通文件接口下载 SQLite `.seq` 会生成一致的 SQLite backup，保证流式读取期间后续事务不会改变已返回快照；只有此显式下载才复制整库。
 
 ## 原生 harness 控制中心（MCP 2.0）
 
@@ -368,7 +372,7 @@ Codex 的 `capabilities.checkpointFork` 表示支持经验证的 `harness_fork.l
 
 Codex rollout 历史的用户项保留 `internal_chat_message_metadata_passthrough.content_item_kinds` 为 `contentItemKinds`，仅在类型和数量与 content 数组对齐时透传，并优先采用同一元数据的原生 turn_id。项目指令、环境和真实用户正文因此可由展示层区分；不按文本内容猜测来源、不删除或改写上下文、不改变发送行为。旧日志或没有此元数据的其他 harness 不补造来源。
 
-Codex 提供 `harness_rename`、`harness_archive`、`harness_unarchive`、`harness_delete`，均要求可写授权并使用 epoch/requestId 回执去重。rename 调用 thread/name/set，不 resume；archive 允许本实例持有且原生状态明确 idle，或原生 notLoaded 历史；后者不表示外部进程已空闲，归档不会停止独立 CLI。归档前核验派生子会话的授权与状态，归档后释放所有权；unarchive 核验恢复的原生 cwd，不 resume、不启动 turn。delete 调用原生 thread/delete，要求受控 idle 或已归档 notLoaded，前置有界核验全部派生子会话的授权和状态；回执返回 deletedSessionIds，原生负责日志及元数据删除，项目文件保留。
+Codex 提供 `harness_rename`、`harness_archive`、`harness_unarchive`、`harness_delete`，均要求可写授权并使用 epoch/requestId 回执去重。rename 调用 thread/name/set，不 resume，客户端不因既有指令队列而禁止修改标题；archive 允许本实例持有且原生状态明确 idle，或原生 notLoaded 历史；后者不表示外部进程已空闲，归档不会停止独立 CLI。归档前核验派生子会话的授权与状态，归档后释放所有权；unarchive 核验恢复的原生 cwd，不 resume、不启动 turn。delete 调用原生 thread/delete，要求受控 idle 或已归档 notLoaded，前置有界核验全部派生子会话的授权和状态；回执返回 deletedSessionIds，原生负责日志及元数据删除，项目文件保留。
 
 `harness_turn.attachments` 接受最多 5 个内联 text/image：UTF-8 文本每个 64 KiB，PNG/JPEG/WebP 图片解码每个 256 KiB，编码内容总计 512 KiB。拒绝非法名称、二进制文本、宿主路径、远程 URL、其他图片格式和超限内容，在启动 turn 前完成验证。MCP JSON body 上限为 2 MiB，以容纳合法附件的 JSON 转义；其他 JSON 路由仍为 512 KiB。
 
@@ -514,6 +518,14 @@ Profiles advertise `capabilities.models`. Read `harness_models` with `profileId`
 Pass `selection: {modelId, reasoningEffort?}` with `harness_turn`. The adapter checks that the model and effort belong together before submitting the prompt. Codex passes model/effort to turn/start; Claude applies set_model and session-only apply_flag_settings before the user frame; DSH applies session/selectModel before session/prompt. The entire operation retains normal requestId/epoch receipts and session serialization. Settings changes do not write user or project configuration files. An unknown result must be reconciled, never automatically replayed.
 
 Claude model discovery without a live session initializes a short-lived SDK process using --no-session-persistence, reads metadata, and drains the process without sending a prompt. Prompt-kind slash commands may carry a selection; native action commands retain their own configuration semantics and reject an explicit selection override.
+
+Codex 的 `capabilities.steer=true` 协商 `harness_steer`：必填 sessionId、turnId、prompt、epoch、requestId，可带已有内联附件。节点核验项目控制授权和会话所有权，调用 `turn/steer` 并传 expectedTurnId；原生拒绝过期轮次，不新建 turn。追加操作允许穿过正在等待审批的提交锁，共用修改回执去重；未知结果只查询原回执，不自动重发。Claude 也声明 steer，通过流式用户消息 priority=next 在原生安全时机读取，不强制中断工具。原轮若先结束，原生回显会建立实际新轮，结果以 targetTurnId 保留请求目标、turnId 返回实际轮次；不能把新轮伪装成原轮。未声明 steer 的驱动仍按 turn 排队。
+
+`capabilities.metrics` 协商只读 `harness_session_metrics(profileId, sessionId)`，项目授权沿 session read。Codex 从原生事件/历史提取上下文最近占用与容量，从 account/rateLimits/read 提取额度窗口和重置时间；Claude 查询 get_context_usage，并保留 rate_limit_event 和最近 result.total_cost_usd 的原生估算。返回统一 metrics，过滤账号 ID、邮箱、凭据和原始响应；查询不创建、不 resume、不发送 turn。原生费用和宿主当前价格估算均不是账单，未知数据不填零。原生控制查询有3秒边界，失败按 context/quota 分类返回局部错误。
+
+### Read-only session digest
+
+`harness_session_digest` is negotiated by `capabilities.sessionDigest`. It projects explicit user text and visible assistant text without model calls, tool bodies, reasoning, or auto-loaded context. Missing user provenance is reported as `omittedUnclassified`, never guessed from text. It accepts `cursor`, `expectedRevision` and `metadataOnly`; all reads retain project authorization and revision checks. Metadata is allowlisted and omits native payloads, usage history and log paths. Older unclassified records may require manual review. The endpoint does not resume sessions or prove that an external process is idle.
 
 ### 已接纳执行的故障恢复基准
 

@@ -119,6 +119,13 @@ impl Export {
             return Err(Error::unsupported());
         }
         let revision = revisions.as_mut().map(|r| r.get(&file)).transpose()?;
+        if path.ends_with(".seq") {
+            use std::os::unix::fs::FileExt;
+            let mut header = [0u8; 16];
+            if file.read_at(&mut header, 0)? == 16 && &header == b"SQLite format 3\0" {
+                return Ok((super::seq::backup_file(self, path)?, revision));
+            }
+        }
         Ok((file, revision))
     }
 

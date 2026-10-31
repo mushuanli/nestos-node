@@ -26,7 +26,9 @@ for line in sys.stdin:
         emit({'method': 'serverRequest/resolved', 'params': {'threadId': 'session-1', 'requestId': request['id']}})
         continue
     result = {}
-    if method == 'model/list':
+    if method == 'account/rateLimits/read':
+        result = {'rateLimits': {'primary': {'usedPercent': 25, 'windowDurationMins': 300, 'resetsAt': 1800000000}, 'secondary': {'usedPercent': 50, 'windowDurationMins': 10080}, 'credits': {'balance': '12.5', 'unlimited': False}}, 'accountId': 'private-account'}
+    elif method == 'model/list':
         result = {'data': [{'id': 'fixture-model', 'model': 'fixture-model', 'displayName': 'Fixture model', 'isDefault': True, 'defaultReasoningEffort': 'medium', 'supportedReasoningEfforts': [{'reasoningEffort': 'medium'}, {'reasoningEffort': 'high'}]}], 'nextCursor': None}
     elif method == 'skills/list':
         result = {'data':[{'cwd':params['cwds'][0],'skills':[{'name':'fixture-skill','description':'Fixture skill','path':'/harness/skills/fixture/SKILL.md','enabled':True}],'errors':[]}]}
@@ -135,9 +137,18 @@ for line in sys.stdin:
             continue
         emit({'id': request['id'], 'result': result})
         emit({'method': 'turn/started', 'params': {'threadId': thread_id, 'turn': {'id': turn_id}}})
+        if params['input'][0].get('text') == 'fixture:metrics':
+            emit({'method': 'thread/tokenUsage/updated', 'params': {'threadId': thread_id, 'turnId': turn_id, 'tokenUsage': {'last': {'totalTokens': 10000}, 'total': {'totalTokens': 900000}, 'modelContextWindow': 200000}}})
         emit({'method': 'item/agentMessage/delta', 'params': {'threadId': thread_id, 'turnId': turn_id, 'delta': '<script>output</script>'}})
         emit({'id': 'approval-1', 'method': 'item/commandExecution/requestApproval', 'params': {'threadId': thread_id, 'turnId': turn_id, 'command': 'echo test'}})
         continue
+    elif method == 'turn/steer':
+        thread = threads[params['threadId']]
+        if thread['status']['type'] != 'active' or params['expectedTurnId'] != 'turn-' + str(turn_count):
+            emit({'id': request['id'], 'error': {'code': -32602, 'message': 'active turn mismatch'}})
+            continue
+        assert params['input'][0]['type'] == 'text'
+        result = {'turnId': params['expectedTurnId']}
     elif method == 'turn/interrupt':
         threads[params['threadId']]['status'] = {'type': 'idle'}
         emit({'method': 'turn/completed', 'params': {'threadId': params['threadId'], 'turn': {'id': params['turnId'], 'status': 'interrupted'}}})

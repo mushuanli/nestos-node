@@ -42,6 +42,7 @@ pub(super) struct Context {
     pub turn: String,
     pub stream: String,
     pub interrupted: bool,
+    pub steering: HashMap<String, String>,
     pub pending: HashMap<String, Reply>,
     pub requests: HashMap<String, Value>,
     pub events: Arc<Mutex<Events>>,
@@ -66,6 +67,7 @@ impl Context {
             turn: String::new(),
             stream: String::new(),
             interrupted: false,
+            steering: HashMap::new(),
             pending: HashMap::new(),
             requests: HashMap::new(),
             events,
@@ -213,6 +215,21 @@ impl Process {
                 .await?.await.map_err(|_| Error::unavailable())?
         }.await;
         admission_diagnostic(operation_id, &session, id, &result, started);
+        result
+    }
+    pub async fn steer(
+        &self,
+        id: &str,
+        target: &str,
+        content: Value,
+        operation: Option<&str>,
+    ) -> Result<Value, Error> {
+        let session = self.session.lock().unwrap()["id"].clone();
+        let started = std::time::Instant::now();
+        let result = self.enqueue(json!({"type":"user","uuid":id,"session_id":session,
+            "message":{"role":"user","content":content},"parent_tool_use_id":null,"priority":"next","_steerTurnId":target}), Some(id.into()))
+            .await?.await.map_err(|_|Error::unavailable())?;
+        admission_diagnostic(operation, &session, target, &result, started);
         result
     }
     pub async fn respond(&self, id: &str, response: Value) -> Result<Value, Error> {
@@ -449,7 +466,29 @@ async fn send_command(
             }
         };
     }
-    mark_sent(context, &message)?;
+    let target = message
+        .as_object_mut()
+        .and_then(|row| row.remove("_steerTurnId"));
+    if let Some(target) = target {
+        if target.as_str() != Some(context.turn.as_str())
+            || context.session.lock().unwrap()["status"] != "active"
+        {
+            let _ = command.reply.send(Err(Error::busy()));
+            return Ok(());
+        }
+        if context.steering.len() >= 64 {
+            let _ = command
+                .reply
+                .send(Err(Error::too_many("CLAUDE_STEERING_BUSY")));
+            return Ok(());
+        }
+        context.steering.insert(
+            message["uuid"].as_str().ok_or_else(Error::invalid)?.into(),
+            target.as_str().unwrap().into(),
+        );
+    } else {
+        mark_sent(context, &message)?;
+    }
     let mut bytes = serde_json::to_vec(&message).map_err(|_| Error::internal())?;
     bytes.push(b'\n');
     input

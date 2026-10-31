@@ -58,6 +58,7 @@ struct Cursor {
     provider: Option<String>,
     model: Option<String>,
     cumulative: Option<Tokens>,
+    context_window: Option<Value>,
     entries: BTreeMap<String, Entry>,
 }
 impl Reader {
@@ -191,7 +192,7 @@ impl Cursor {
         json!({"sessionId":session,"scope":"transcript","source":"native-history",
             "revision":format!("{}:{}:{}:{}",self.identity.0,self.identity.1,self.offset,self.modified),
             "complete":!self.entries.is_empty() && !self.incomplete && self.offset==length && self.pending.is_empty() && !self.skipped,
-            "observedAt":chrono::Utc::now().timestamp_millis(),"totals":total,"entries":self.entries.values().collect::<Vec<_>>()})
+            "contextWindow":self.context_window,"observedAt":chrono::Utc::now().timestamp_millis(),"totals":total,"entries":self.entries.values().collect::<Vec<_>>()})
     }
     fn put(&mut self, id: String, tokens: Tokens, replace: bool) -> Result<(), Error> {
         if !self.entries.contains_key(&id) && self.entries.len() >= MAX_ENTRIES {

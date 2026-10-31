@@ -11,6 +11,7 @@ pending=None
 deferred_user=None
 model=None
 effort=None
+metrics_mode=False
 
 def emit(value):
  print(json.dumps(value),flush=True)
@@ -19,7 +20,7 @@ def append(value):
  with (directory/(session+'.jsonl')).open('a') as output:output.write(json.dumps(value)+'\n')
 def finish(error=False):
  global pending
- emit({'type':'result','session_id':session,'is_error':error,'subtype':'error_during_execution' if error else 'success'})
+ emit({'type':'result','session_id':session,'is_error':error,'subtype':'error_during_execution' if error else 'success', **({'total_cost_usd':0.123} if metrics_mode else {})})
  pending=None
 for line in sys.stdin:
  value=json.loads(line)
@@ -27,7 +28,7 @@ for line in sys.stdin:
   request=value['request']
   if request['subtype']=='set_model':model=request['model']
   if request['subtype']=='apply_flag_settings':effort=request['settings']['effortLevel']
-  emit({'type':'control_response','response':{'subtype':'success','request_id':value['request_id'],'response':{'models':[{'value':'fixture-model','displayName':'Fixture model','supportsEffort':True,'supportedEffortLevels':['low','high']}], 'commands':[{'name':'compact','description':'Compact native history','argumentHint':'[focus]','aliases':['condense']}, {'name':'team:verify','description':'Verify this project','argumentHint':'[scope]','aliases':['verify']}]} if request['subtype']=='initialize' else {}}})
+  emit({'type':'control_response','response':{'subtype':'success','request_id':value['request_id'],'response':{'models':[{'value':'fixture-model','displayName':'Fixture model','supportsEffort':True,'supportedEffortLevels':['low','high']}], 'commands':[{'name':'compact','description':'Compact native history','argumentHint':'[focus]','aliases':['condense']}, {'name':'team:verify','description':'Verify this project','argumentHint':'[scope]','aliases':['verify']}]} if request['subtype']=='initialize' else {'totalTokens':1234,'maxTokens':200000} if request['subtype']=='get_context_usage' else {}}})
   if request['subtype']=='interrupt':
    if deferred_user is not None:
     emit(deferred_user);deferred_user=None
@@ -35,6 +36,14 @@ for line in sys.stdin:
  elif value['type']=='user':
   assert isinstance(value['message']['content'],list)
   text='\n'.join(p.get('text','') for p in value['message']['content'])
+  if value.get('priority')=='next':
+   assert '_steerTurnId' not in value
+   if text=='steer-after-result':finish()
+   append({**value,'type':'user'});emit(value)
+   if text=='steer-after-result':finish()
+   continue
+  metrics_mode=text=='metrics-report'
+  if metrics_mode:emit({'type':'rate_limit_event','rate_limit_info':{'status':'allowed_warning','utilization':0.8,'rateLimitType':'five_hour','resetsAt':1800000000}})
   if text.split()[0] in ['/compact','/condense']:
    emit({'type':'system','subtype':'compact_boundary','compact_metadata':{'trigger':'manual','pre_tokens':32}});finish();continue
   if text=='native-state-events':

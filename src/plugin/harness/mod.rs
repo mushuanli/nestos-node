@@ -12,6 +12,7 @@ mod command_runs;
 mod commands;
 pub mod config;
 mod diagnostics;
+mod digest;
 mod driver;
 mod driver_slot;
 #[path = "drivers/dsh/mod.rs"]
@@ -20,6 +21,7 @@ mod environment;
 mod events;
 mod history;
 mod models;
+mod metrics;
 mod plugins;
 mod presentation;
 mod receipts;

@@ -32,6 +32,10 @@ impl Cursor {
         }
     }
     fn codex_usage(&mut self, info: &Value) -> Result<(), Error> {
+        self.context_window = super::super::metrics::context(
+            &info["last_token_usage"]["total_tokens"],
+            &info["model_context_window"],
+        );
         let raw = &info["total_token_usage"];
         if !valid_counts(
             raw,

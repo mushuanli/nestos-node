@@ -227,3 +227,344 @@ fn concurrent_seqfile_creators_cannot_overwrite_each_other() {
     });
     assert_eq!(seq::snapshot(&export, "info.seq").unwrap().entries.len(), 1);
 }
+
+#[test]
+fn bounded_queries_seek_keys_and_page_literal_prefixes_with_revision_fencing() {
+    let root = tempfile::tempdir().unwrap();
+    let export = Export::exclusive(root.path()).unwrap();
+    seq::update(
+        &export,
+        Update {
+            path: "info.seq".into(),
+            expected_revision: None,
+            changes: ["event/%/01", "event/%/02", "event/_/03", "private"]
+                .into_iter()
+                .map(|key| Change::Set {
+                    key: key.into(),
+                    value: json!(key),
+                })
+                .collect(),
+        },
+        || Ok(()),
+    )
+    .unwrap();
+    let first = seq::query(
+        &export,
+        "info.seq",
+        serde_json::from_value(json!({"prefix":"event/%/","limit":1})).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(first.snapshot.entries[0].key, "event/%/01");
+    assert_eq!(first.next.as_deref(), Some("event/%/01"));
+    let next = seq::query(&export, "info.seq", serde_json::from_value(json!({"prefix":"event/%/","after":first.next,"limit":1,"expectedRevision":first.snapshot.revision})).unwrap()).unwrap();
+    assert_eq!(next.snapshot.entries[0].key, "event/%/02");
+    assert!(next.next.is_none());
+    let selected = seq::query(
+        &export,
+        "info.seq",
+        serde_json::from_value(json!({"keys":["event/_/03","missing"]})).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(selected.snapshot.entries.len(), 1);
+    seq::update(
+        &export,
+        Update {
+            path: "info.seq".into(),
+            expected_revision: selected.snapshot.revision.clone(),
+            changes: vec![],
+        },
+        || Ok(()),
+    )
+    .unwrap();
+    assert_eq!(
+        seq::query(
+            &export,
+            "info.seq",
+            serde_json::from_value(
+                json!({"keys":[],"expectedRevision":selected.snapshot.revision})
+            )
+            .unwrap()
+        )
+        .err()
+        .unwrap()
+        .code,
+        "ECONFLICT"
+    );
+    for selection in [
+        json!({"keys":["private"],"prefix":"event"}),
+        json!({"limit":0}),
+        json!({"limit":1001}),
+        json!({"keys":[""]}),
+    ] {
+        assert!(seq::query(
+            &export,
+            "info.seq",
+            serde_json::from_value(selection).unwrap()
+        )
+        .is_err());
+    }
+}
+
+#[test]
+fn large_databases_use_native_pages_without_replacing_the_inode() {
+    use std::os::unix::fs::MetadataExt;
+    let root = tempfile::tempdir().unwrap();
+    let export = Export::exclusive(root.path()).unwrap();
+    seq::update(
+        &export,
+        Update {
+            path: "large.seq".into(),
+            expected_revision: None,
+            changes: vec![],
+        },
+        || Ok(()),
+    )
+    .unwrap();
+    let path = root.path().join("large.seq");
+    {
+        let db = rusqlite::Connection::open(&path).unwrap();
+        db.execute(
+            "INSERT INTO entries VALUES('large',?1)",
+            [json!("x".repeat(17 * 1024 * 1024)).to_string()],
+        )
+        .unwrap();
+    }
+    let inode = std::fs::metadata(&path).unwrap().ino();
+    let baseline = seq::query(
+        &export,
+        "large.seq",
+        serde_json::from_value(json!({"keys":["small"]})).unwrap(),
+    )
+    .unwrap();
+    seq::update(
+        &export,
+        Update {
+            path: "large.seq".into(),
+            expected_revision: baseline.snapshot.revision,
+            changes: vec![Change::Set {
+                key: "small".into(),
+                value: json!(42),
+            }],
+        },
+        || Ok(()),
+    )
+    .unwrap();
+    assert_eq!(std::fs::metadata(&path).unwrap().ino(), inode);
+    let selected = seq::query(
+        &export,
+        "large.seq",
+        serde_json::from_value(json!({"keys":["small"]})).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(selected.snapshot.entries[0].value, json!(42));
+    assert_eq!(
+        seq::snapshot(&export, "large.seq").err().unwrap().code,
+        "SEQ_RESPONSE_LIMIT"
+    );
+}
+
+#[test]
+fn sqlite_sidecar_symlinks_and_hardlinks_fail_closed() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let export = Export::exclusive(root.path()).unwrap();
+    seq::update(
+        &export,
+        Update {
+            path: "info.seq".into(),
+            expected_revision: None,
+            changes: vec![],
+        },
+        || Ok(()),
+    )
+    .unwrap();
+    let revision = seq::snapshot(&export, "info.seq").unwrap().revision;
+    std::fs::write(outside.path().join("secret"), b"secret").unwrap();
+    std::os::unix::fs::symlink(
+        outside.path().join("secret"),
+        root.path().join("info.seq-journal"),
+    )
+    .unwrap();
+    assert!(seq::update(
+        &export,
+        Update {
+            path: "info.seq".into(),
+            expected_revision: revision.clone(),
+            changes: vec![]
+        },
+        || Ok(())
+    )
+    .is_err());
+    assert_eq!(
+        std::fs::read(outside.path().join("secret")).unwrap(),
+        b"secret"
+    );
+    std::fs::remove_file(root.path().join("info.seq-journal")).unwrap();
+    std::fs::hard_link(root.path().join("info.seq"), root.path().join("copy.seq")).unwrap();
+    assert_eq!(
+        seq::update(
+            &export,
+            Update {
+                path: "info.seq".into(),
+                expected_revision: revision,
+                changes: vec![]
+            },
+            || Ok(())
+        )
+        .unwrap_err()
+        .code,
+        "SEQ_PERMISSIONS"
+    );
+}
+
+#[test]
+fn immutable_bodies_verify_content_and_can_precede_database_creation() {
+    use seq::bodies::{self, BodyQuery, BodyWrite};
+    use sha2::{Digest, Sha256};
+    let root = tempfile::tempdir().unwrap();
+    let export = Export::exclusive(root.path()).unwrap();
+    let text = "a large but immutable body".to_owned();
+    let hash = format!("{:x}", Sha256::digest(text.as_bytes()));
+    let query = BodyQuery {
+        path: "info.seq".into(),
+        sha256: hash.clone(),
+    };
+    assert!(bodies::read(&export, &query).unwrap()["text"].is_null());
+    for _ in 0..2 {
+        bodies::write(
+            &export,
+            BodyWrite {
+                path: query.path.clone(),
+                sha256: hash.clone(),
+                text: text.clone(),
+            },
+            || Ok(()),
+        )
+        .unwrap();
+    }
+    assert_eq!(bodies::read(&export, &query).unwrap()["text"], text);
+    assert!(!root.path().join("info.seq").exists());
+    assert!(bodies::write(
+        &export,
+        BodyWrite {
+            path: query.path.clone(),
+            sha256: hash.clone(),
+            text: "different".into()
+        },
+        || Ok(())
+    )
+    .is_err());
+    std::fs::write(
+        root.path().join(format!("info.seq.assets/{hash}.json")),
+        b"tampered",
+    )
+    .unwrap();
+    assert_eq!(
+        bodies::read(&export, &query).unwrap_err().code,
+        "SEQ_BODY_INTEGRITY"
+    );
+    assert!(bodies::read(
+        &export,
+        &BodyQuery {
+            path: "../escape.seq".into(),
+            sha256: hash
+        }
+    )
+    .is_err());
+}
+
+#[test]
+fn raw_download_is_a_stable_sqlite_backup_while_later_transactions_commit() {
+    use std::io::Read;
+    let root = tempfile::tempdir().unwrap();
+    let export = Export::exclusive(root.path()).unwrap();
+    seq::update(
+        &export,
+        Update {
+            path: "info.seq".into(),
+            expected_revision: None,
+            changes: vec![Change::Set {
+                key: "version".into(),
+                value: json!(1),
+            }],
+        },
+        || Ok(()),
+    )
+    .unwrap();
+    let (mut download, revision) = export.read("info.seq").unwrap();
+    seq::update(
+        &export,
+        Update {
+            path: "info.seq".into(),
+            expected_revision: revision,
+            changes: vec![Change::Set {
+                key: "version".into(),
+                value: json!(2),
+            }],
+        },
+        || Ok(()),
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    download.read_to_end(&mut bytes).unwrap();
+    std::fs::write(root.path().join("download.seq"), bytes).unwrap();
+    assert_eq!(
+        seq::snapshot(&export, "download.seq").unwrap().entries[0].value,
+        json!(1)
+    );
+    assert_eq!(
+        seq::snapshot(&export, "info.seq").unwrap().entries[0].value,
+        json!(2)
+    );
+}
+
+#[test]
+fn publishing_a_body_directory_keeps_the_database_validator_and_missing_parents_read_empty() {
+    use sha2::{Digest, Sha256};
+    let root = tempfile::tempdir().unwrap();
+    let export = Export::exclusive(root.path()).unwrap();
+    assert!(seq::snapshot(&export, "missing/folder/info.seq")
+        .unwrap()
+        .entries
+        .is_empty());
+    seq::update(
+        &export,
+        Update {
+            path: "info.seq".into(),
+            expected_revision: None,
+            changes: vec![],
+        },
+        || Ok(()),
+    )
+    .unwrap();
+    let revision = seq::snapshot(&export, "info.seq").unwrap().revision;
+    let text = "body".to_owned();
+    let hash = format!("{:x}", Sha256::digest(text.as_bytes()));
+    seq::bodies::write(
+        &export,
+        seq::bodies::BodyWrite {
+            path: "info.seq".into(),
+            sha256: hash,
+            text,
+        },
+        || Ok(()),
+    )
+    .unwrap();
+    assert_eq!(
+        seq::snapshot(&export, "info.seq").unwrap().revision,
+        revision
+    );
+    seq::update(
+        &export,
+        Update {
+            path: "info.seq".into(),
+            expected_revision: revision,
+            changes: vec![Change::Set {
+                key: "ref".into(),
+                value: json!("body"),
+            }],
+        },
+        || Ok(()),
+    )
+    .unwrap();
+}

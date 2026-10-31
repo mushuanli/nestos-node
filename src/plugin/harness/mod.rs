@@ -27,6 +27,7 @@ mod search;
 mod service;
 mod subscription;
 mod usage;
+mod writer_lock;
 pub use driver::{HarnessDriver, NativeExecution};
 pub use plugins::{HarnessPlugin, HarnessPlugins};
 pub use service::Harnesses;

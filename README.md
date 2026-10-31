@@ -177,6 +177,7 @@ retained_files = 5
 - warn/error：认证拒绝、HTTP 错误、命令非零退出、超时、启动或清理失败；保留操作/请求 ID、状态和退出码。
 - 原生 Codex RPC 失败输出 `harness.native.failed`：method、rpcCode、稳定 code、durationMs，不记录原生错误全文。`HARNESS_SESSION_BUSY` 表示其他原生实例持有会话写入锁；`HARNESS_INVALID_PARAMS` 对应 -32602，其他未识别原生错误保留 `HARNESS_RPC_ERROR`。读取历史成功不代表能恢复写入。
 - Codex 后台可能在客户端离开后继续保留会话；写锁不证明某个前台客户端仍在使用，持久化 source 字段也不能识别当前锁持有者。锁拒绝后保留输入，不删除锁文件或强制并发写入。
+- `harness_session_info` 与会话历史返回可选 `session.writerLock`，这是独立于历史占用错误的只读 Linux 锁检查：`status=held/not-held/unknown`、`checkedAt`、持有者 `owner.pid/uid/processStartedAt`，可选 `lockFileModifiedAt` 和安全错误码。锁文件设备号与 inode 对照 `/proc/locks` 的实际 FLOCK WRITE，复查持有者变化；文件存在不代表被锁，准确取得锁的时间无法获知，`acquiredAt=null`，不得拿文件修改或进程启动时间代替。旧观察不证明当前占用，失败指令仍须用户重新提交。`harness.writer_lock.observed` 保留操作身份、会话、阶段、结果、PID/UID、错误码及耗时，不输出物理路径、命令行或正文；权限不足、锁表超限和检查变化返回 unknown，不阻断普通会话读取。
 - 原生执行记录 `harness.turn.started/completed/failed`，流错误记录 `harness.stream.error`。保留 sessionId、turnId、状态、重试标记及原生提供的错误类别/HTTP 状态码；不复制消息、工具内容或原生错误正文。可与 `http.failed` 的路径、状态和时间对照，区分任务失败与文件接口繁忙。
 - 普通读取、stat、目录列表、能力查询及状态轮询成功时始终静默，包括 trace/debug。读取错误输出 `http.failed`。
 - 不输出 Authorization、口令、请求正文、命令正文或文件内容；命令输出仅记录字节数。进程结束记录是回收后的结果，HTTP 断线不冒充操作已取消。

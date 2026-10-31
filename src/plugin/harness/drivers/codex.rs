@@ -93,6 +93,7 @@ impl Codex {
             "harness_session_info" => {
                 let thread = self.summary(&bridge, string(&args, "sessionId")?).await?;
                 let mut session = self.session(&thread);
+                session["writerLock"] = super::writer_lock::inspect(&self.config.home, string(&args, "sessionId")?);
                 super::usage::attach(&mut session, self.thread_usage(&thread).await);
                 Ok(json!({"session":session}))
             }
@@ -392,6 +393,7 @@ impl Codex {
         }
         thread["turns"] = page["turns"].clone();
         let mut session = self.session(&thread);
+        session["writerLock"] = super::writer_lock::inspect(&self.config.home, id);
         if !args["cursor"].is_string() {
             super::usage::attach(&mut session, self.thread_usage(&thread).await);
         }

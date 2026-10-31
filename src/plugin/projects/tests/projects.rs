@@ -52,6 +52,30 @@ async fn register(state: &Arc<State>, path: &str, create: bool) -> Value {
 }
 
 #[tokio::test]
+async fn harness_home_executable_can_read_sibling_resources_without_extra_mounts() {
+    if std::env::var("PI_AGENT_PROJECT_TEST").as_deref() != Ok("1") {return;}
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let config = deployment(root.path());
+    let state = State::from_config(&config).unwrap();
+    let project = register(&state, "group/existing", false).await;
+    state.services.require::<nestos_node::process::Execution>().unwrap().accept();
+    let stored = state.services.require::<nestos_node::projects::ProjectService>().unwrap()
+        .get(0, project["id"].as_str().unwrap()).unwrap();
+    let runtime = ProjectRuntime::new(&state, 0, stored);
+    let mut profile = nestos_node::harness::config::validate(&config).unwrap().remove(0);
+    let binary = profile.home.join("native");
+    std::fs::write(&binary, "#!/bin/sh\nexec /bin/cat \"$(dirname \"$0\")/resource\"\n").unwrap();
+    std::fs::write(profile.home.join("resource"), "ready").unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    profile.command = binary.to_string_lossy().into_owned();
+    let mut prepared = runtime.prepare(&profile, vec![]).unwrap();
+    let result = prepared.command.output().await.unwrap();
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    assert_eq!(result.stdout, b"ready");
+}
+
+#[tokio::test]
 async fn source_aliases_refuse_runtime_paths_without_changing_default_namespaces() {
     let root = tempfile::tempdir().unwrap();
     let config = deployment(root.path());

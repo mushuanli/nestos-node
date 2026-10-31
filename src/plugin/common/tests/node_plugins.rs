@@ -49,6 +49,7 @@ async fn switches_remove_routes_and_discovery_without_opening_disabled_services(
             projects: false,
             workspaces: vec![],
             dsh: None,
+            codex: None,
         });
     let application = Application::from_config(&config).unwrap();
     application.start().await.unwrap();

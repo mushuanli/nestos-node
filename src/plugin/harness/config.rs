@@ -22,6 +22,33 @@ pub struct ProfileConfig {
     #[serde(default)]
     pub workspaces: Vec<WorkspaceConfig>,
     pub dsh: Option<super::dsh::config::DshConfig>,
+    pub codex: Option<CodexConfig>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodexConfig {
+    pub reasoning_summary: Option<ReasoningSummary>,
+}
+
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningSummary {
+    Auto,
+    Concise,
+    Detailed,
+    None,
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::CodexConfig;
+    #[test]
+    fn rejects_unknown_summary_modes_and_misspelled_fields() {
+        assert!(toml::from_str::<CodexConfig>("reasoning_summary = 'automatic'").is_err());
+        assert!(toml::from_str::<CodexConfig>("reasoning_summaries = 'auto'").is_err());
+        assert!(toml::from_str::<CodexConfig>("reasoning_summary = 'auto'").is_ok());
+    }
 }
 
 #[derive(Clone, Deserialize)]

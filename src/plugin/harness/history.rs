@@ -6,6 +6,30 @@ use std::{
     path::Path,
 };
 
+/** File identity and change metadata only; never hash or expose transcript content. */
+pub async fn revision(home: &Path, path: &str) -> Result<String, Error> {
+    let home = home.to_owned();
+    let path = path.to_owned();
+    tokio::task::spawn_blocking(move || {
+        use sha2::Digest;
+        use std::os::unix::fs::MetadataExt;
+        let stat = open_log(&home, &path)?.metadata()?;
+        let identity = format!(
+            "{}:{}:{}:{}:{}:{}:{}",
+            stat.dev(),
+            stat.ino(),
+            stat.len(),
+            stat.mtime(),
+            stat.mtime_nsec(),
+            stat.ctime(),
+            stat.ctime_nsec()
+        );
+        Ok(format!("{:x}", sha2::Sha256::digest(identity.as_bytes())))
+    })
+    .await
+    .map_err(|_| Error::internal())?
+}
+
 pub async fn read(
     home: &Path,
     path: &str,
@@ -125,21 +149,32 @@ fn complete_lines(bytes: &[u8], start: u64) -> Result<Vec<(u64, &[u8])>, Error> 
 }
 struct Page {
     items: Vec<Value>,
+    terminals: Vec<Value>,
     budget: usize,
     next: u64,
 }
+enum Entry {
+    Item(Value),
+    Terminal(Value),
+}
 impl Page {
-    fn push(&mut self, at: u64, entry: Option<Value>) -> Result<bool, Error> {
+    fn push(&mut self, at: u64, entry: Option<Entry>) -> Result<bool, Error> {
         if let Some(entry) = entry {
-            let size = entry.to_string().len();
+            let value = match &entry {
+                Entry::Item(value) | Entry::Terminal(value) => value,
+            };
+            let size = value.to_string().len();
             if size > 2 * 1024 * 1024 {
                 return Err(Error::too_large("HARNESS_HISTORY_ITEM_TOO_LARGE"));
             }
-            if size > self.budget || self.items.len() >= 100 {
+            if size > self.budget || self.items.len() + self.terminals.len() >= 100 {
                 return Ok(false);
             }
             self.budget -= size;
-            self.items.push(entry);
+            match entry {
+                Entry::Item(value) => self.items.push(value),
+                Entry::Terminal(value) => self.terminals.push(value),
+            }
         }
         self.next = at;
         Ok(true)
@@ -149,23 +184,42 @@ fn entries(
     lines: Vec<(u64, &[u8])>,
     mut turn: Option<String>,
     summary: bool,
-) -> Result<Vec<(u64, Option<Value>)>, Error> {
+) -> Result<Vec<(u64, Option<Entry>)>, Error> {
     let mut entries = Vec::with_capacity(lines.len());
     for (at, line) in lines {
         let record: Value = serde_json::from_slice(line).map_err(|_| Error::internal())?;
         if let Some(id) = context(&record) {
             turn = Some(id);
         }
-        let entry = record_item(&record, at, turn.as_deref()).and_then(|entry| {
+        let item = record_item(&record, at, turn.as_deref()).and_then(|entry| {
             if summary {
                 super::presentation::item(&entry)
             } else {
                 Some(entry)
             }
         });
+        let entry = terminal(&record)
+            .map(Entry::Terminal)
+            .or_else(|| item.map(Entry::Item));
         entries.push((at, entry));
     }
     Ok(entries)
+}
+/** Only an explicit native lifecycle record with its own turn identity proves termination. */
+fn terminal(record: &Value) -> Option<Value> {
+    if record["type"] != "event_msg" {
+        return None;
+    }
+    let payload = &record["payload"];
+    let status = match payload["type"].as_str()? {
+        "task_complete" => "completed",
+        "turn_aborted" => "interrupted",
+        _ => return None,
+    };
+    let id = payload["turn_id"]
+        .as_str()
+        .filter(|id| !id.is_empty() && id.len() <= 1024)?;
+    Some(json!({"id":id,"status":status,"items":[]}))
 }
 fn record_item(record: &Value, at: u64, turn: Option<&str>) -> Option<Value> {
     let mut entry = item(record)?;
@@ -184,6 +238,7 @@ fn page(bytes: &[u8], start: u64, turn: Option<String>, summary: bool) -> Result
     let entries = entries(complete_lines(bytes, start)?, turn, summary)?;
     let mut page = Page {
         items: Vec::new(),
+        terminals: Vec::new(),
         budget: 2 * 1024 * 1024,
         next: entries.first().map(|(at, _)| *at).unwrap_or(start),
     };
@@ -193,8 +248,11 @@ fn page(bytes: &[u8], start: u64, turn: Option<String>, summary: bool) -> Result
         }
     }
     page.items.reverse();
+    page.terminals.reverse();
+    let mut turns = vec![json!({"items":page.items})];
+    turns.extend(page.terminals);
     Ok(
-        json!({"turns":[{"items":page.items}],"nextCursor":if page.next > 0 {Some(page.next.to_string())} else {None}}),
+        json!({"turns":turns,"nextCursor":if page.next > 0 {Some(page.next.to_string())} else {None}}),
     )
 }
 
@@ -240,6 +298,64 @@ fn message_item(payload: &Value, role: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn records(records: &[Value]) -> String {
+        records.iter().map(|record| format!("{record}\n")).collect()
+    }
+    #[test]
+    fn lifecycle_terminals_keep_exact_identity_without_inventing_completion() {
+        let bytes = records(&[
+            json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"unfinished"}}),
+            json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"completed"}}),
+            json!({"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"cancelled"}}),
+            json!({"type":"event_msg","payload":{"type":"turn_aborted"}}),
+            json!({"type":"event_msg","payload":{"type":"error","turn_id":"unfinished"}}),
+            json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"Done"}]}}),
+        ]);
+        for summary in [false, true] {
+            let result = page(bytes.as_bytes(), 0, None, summary).unwrap();
+            let turns = result["turns"].as_array().unwrap();
+            assert_eq!(turns.len(), 3);
+            assert_eq!(
+                turns[1],
+                json!({"id":"completed","status":"completed","items":[]})
+            );
+            assert_eq!(
+                turns[2],
+                json!({"id":"cancelled","status":"interrupted","items":[]})
+            );
+            assert!(turns.iter().all(|turn| turn["id"] != "unfinished"));
+        }
+    }
+    #[test]
+    fn terminal_only_pages_remain_bounded_and_do_not_skip_older_results() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir(home.path().join("sessions")).unwrap();
+        let path = home.path().join("sessions/session.jsonl");
+        let bytes = records(
+            &(0..205)
+                .map(|i| {
+                    json!({"type":"event_msg","payload":{
+            "type":"task_complete","turn_id":format!("turn-{i}")}})
+                })
+                .collect::<Vec<_>>(),
+        );
+        std::fs::write(&path, bytes).unwrap();
+        let mut cursor = None;
+        let mut ids = std::collections::HashSet::new();
+        loop {
+            let result = read_log(home.path(), path.to_str().unwrap(), cursor, true).unwrap();
+            let turns = result["turns"].as_array().unwrap();
+            assert!(turns.len() <= 101);
+            for turn in turns.iter().skip(1) {
+                assert!(ids.insert(turn["id"].as_str().unwrap().to_owned()));
+            }
+            match result["nextCursor"].as_str() {
+                Some(next) => cursor = Some(next.parse().unwrap()),
+                None => break,
+            }
+        }
+        assert_eq!(ids.len(), 205);
+    }
     #[test]
     fn user_provenance_and_native_turn_survive_history_projection() {
         let record = json!({"type":"response_item","payload":{"id":"context","type":"message","role":"user",

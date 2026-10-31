@@ -56,6 +56,14 @@ impl Codex {
         input: Value,
     ) -> Result<Value, Error> {
         let mut params = json!({"threadId":args["sessionId"],"input":input});
+        if let Some(summary) = self
+            .config
+            .codex
+            .as_ref()
+            .and_then(|config| config.reasoning_summary.as_ref())
+        {
+            params["summary"] = json!(summary);
+        }
         if args.get("selection").is_none() {
             return Ok(params);
         }

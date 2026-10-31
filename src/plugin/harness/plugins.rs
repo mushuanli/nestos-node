@@ -49,6 +49,9 @@ impl HarnessPlugins {
         Ok(())
     }
     pub fn validate(&self, profile: &ProfileConfig) -> Result<(), String> {
+        if profile.kind != "codex" && profile.codex.is_some() {
+            return Err("Codex options require kind = codex".into());
+        }
         if profile.kind != "dsh" && profile.dsh.is_some() {
             return Err("DSH options require kind = dsh".into());
         }

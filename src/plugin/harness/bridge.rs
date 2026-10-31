@@ -92,7 +92,7 @@ impl Bridge {
         let output = child.stdout.take().ok_or_else(Error::internal)?;
         let (sender, receiver) = mpsc::channel(128);
         let (exit, exited) = watch::channel(false);
-        let context = json!({"profileId":config.id,"processId":std::process::id(),"childPid":child.id(),
+        let context = json!({"profileId":config.id,"processId":std::process::id(),"childPid":child.id(),"runtimeStartedAt":chrono::Utc::now().timestamp_millis(),
             "projectId":runtime.as_ref().map(|r| &r.project.id),
             "ownerId":runtime.as_ref().map(|r| &r.project.owner)});
         let bridge = Arc::new(Self {
@@ -147,6 +147,11 @@ impl Bridge {
             .try_send(Command::Respond(id, result, send))
             .map_err(|_| Error::unavailable())?;
         await_reply(receive).await
+    }
+    pub(super) fn recovery_context(&self) -> Value {
+        json!({"runtimeId":self.events.lock().unwrap().epoch,
+            "processId":self.context["processId"],"childPid":self.context["childPid"],
+            "runtimeStartedAt":self.context["runtimeStartedAt"]})
     }
     pub fn close(&self) {
         if !self.stop.is_cancelled() {

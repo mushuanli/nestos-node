@@ -46,6 +46,69 @@ fn service(root: &Path) -> Harnesses {
 }
 
 #[tokio::test]
+async fn codex_summary_configuration_is_explicit_and_preserves_model_and_speed_defaults() {
+    use nestos_node::harness::config::{CodexConfig, ReasoningSummary};
+    for (summary, expected) in [(Some(ReasoningSummary::Auto), "auto"), (Some(ReasoningSummary::None), "none"), (None, "unset")] {
+        let root = tempfile::tempdir().unwrap();
+        let fixture = root.path().join("codex-fixture.py");
+        std::fs::write(&fixture, include_str!("fixtures/codex-app-server.py")).unwrap();
+        std::fs::set_permissions(&fixture, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut settings = config(root.path(), fixture.to_str().unwrap());
+        settings.harnesses[0].codex = summary.map(|reasoning_summary| CodexConfig {reasoning_summary: Some(reasoning_summary)});
+        let service = Harnesses::new(nestos_node::harness::config::validate(&settings).unwrap(), "epoch".into()).unwrap();
+        let created = mutate(&service, "harness_create", "create", json!({"workspaceId":"project"})).await;
+        assert_eq!(created["outcome"], "committed");
+        let result = mutate(&service, "harness_turn", "turn", json!({"sessionId":"session-1",
+            "prompt":format!("fixture:checkpoint-summary-{expected}")})).await;
+        assert_eq!(result["outcome"], "committed");
+        service.close().await;
+    }
+}
+
+#[tokio::test]
+async fn cold_codex_history_recovers_rollout_terminals_without_adopting_the_session() {
+    let root = tempfile::tempdir().unwrap();
+    let service = service(root.path());
+    std::fs::create_dir(root.path().join("sessions")).unwrap();
+    std::fs::write(root.path().join("sessions/native.jsonl"), format!("{}\n{}\n",
+        json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"original-turn"}}),
+        json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"original-turn"}}))).unwrap();
+    std::fs::write(root.path().join("codex-fixture.py"), r#"#!/usr/bin/env python3
+import json, os, sys
+for line in sys.stdin:
+    request = json.loads(line)
+    if request.get('id') is None:
+        continue
+    method = request.get('method')
+    if method not in ('initialize', 'thread/read'):
+        raise RuntimeError('Unexpected native operation')
+    home = os.environ['CODEX_HOME']
+    result = {} if method == 'initialize' else {'thread': {'id':'native', 'cwd':home,
+        'path':home+'/sessions/native.jsonl', 'status':{'type':'notLoaded'}, 'turns':[]}}
+    print(json.dumps({'id':request['id'],'result':result}), flush=True)
+"#).unwrap();
+    let history = service.call("harness_session_read", json!({"profileId":"codex", "sessionId":"native", "toolDetail":"summary"})).await.unwrap();
+    assert_eq!(history["turns"][1], json!({"id":"original-turn","status":"completed","items":[]}));
+    assert_eq!(history["session"]["owned"], false);
+    assert_eq!(history["session"]["status"], "notLoaded");
+    assert!(history["session"]["lastTurnResult"].is_null());
+    let revision = history["session"]["historyRevision"].as_str().unwrap().to_owned();
+    assert_eq!(revision.len(), 64);
+    let info = service.call("harness_session_info", json!({"profileId":"codex","sessionId":"native"})).await.unwrap();
+    assert_eq!(info["session"]["historyRevision"], revision);
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().append(true).open(root.path().join("sessions/native.jsonl")).unwrap();
+    writeln!(file, "{}", json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"Latest external reply"}]}})).unwrap();
+    let info = service.call("harness_session_info", json!({"profileId":"codex","sessionId":"native"})).await.unwrap();
+    assert_ne!(info["session"]["historyRevision"], revision);
+    let updated = service.call("harness_session_read", json!({"profileId":"codex","sessionId":"native","toolDetail":"summary"})).await.unwrap();
+    assert_eq!(updated["turns"][0]["items"][0]["content"][0]["text"], "Latest external reply");
+    assert_eq!(updated["session"]["historyRevision"], info["session"]["historyRevision"]);
+    service.close().await;
+}
+
+
+#[tokio::test]
 async fn event_subscription_survives_idle_driver_replacement_without_pinning_the_process() {
     use futures_util::StreamExt;
     let root = tempfile::tempdir().unwrap();

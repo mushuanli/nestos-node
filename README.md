@@ -514,3 +514,17 @@ Profiles advertise `capabilities.models`. Read `harness_models` with `profileId`
 Pass `selection: {modelId, reasoningEffort?}` with `harness_turn`. The adapter checks that the model and effort belong together before submitting the prompt. Codex passes model/effort to turn/start; Claude applies set_model and session-only apply_flag_settings before the user frame; DSH applies session/selectModel before session/prompt. The entire operation retains normal requestId/epoch receipts and session serialization. Settings changes do not write user or project configuration files. An unknown result must be reconciled, never automatically replayed.
 
 Claude model discovery without a live session initializes a short-lived SDK process using --no-session-persistence, reads metadata, and drains the process without sending a prompt. Prompt-kind slash commands may carry a selection; native action commands retain their own configuration semantics and reject an explicit selection override.
+
+### 已接纳执行的故障恢复基准
+
+Codex profile 可设置 `[harnesses.codex] reasoning_summary = "auto"`（也接受 concise/detailed/none）。未设置时继承原生偏好；设置后普通输入和 prompt 命令在 `turn/start.summary` 显式覆盖，已有线程下一轮也生效，不改 model、effort 或 service tier，不因原生拒绝而重发。升级 profile.command 的 Codex 二进制只影响下次创建原生运行时；不要为版本对齐中断正在执行的共享运行时。
+
+位于已挂载 harness home 内的可执行文件保留原路径，以便解析同目录辅助程序和资源；这不额外挂载其父目录。其他非系统路径仍只映射单个可执行文件到 `/opt/harness`。
+
+Codex 声明 `capabilities.executionRecovery`。会话历史及 `harness_session_info` 的 session.executionRecovery 返回 running/detached/unknown、checkedAt、runtimeId、processId、childPid、runtimeStartedAt；runtimeStartedAt 是本运行时启动时间，不冒充 /proc 的精确进程启动时间。原生状态 active 或写锁 held 时为 running；仅在 notLoaded、owned=false、loaded=false、没有 activeTurnId 且写锁确认为 not-held 时为 detached，其余为 unknown。它只证明当前控制关系与占用，不是某个 turn 的执行终态。
+
+httpd 可在用户显式确认后，依据新读取的 detached 证据结束旧队首等待，把结果未知及证据保存到原用户恢复 journal，并暂停后续队列。超时只触发检查，不自动 kill、不伪造终态、不重放。正常中断使用精确 sessionId/turnId；Codex app-server 当前可能承载多个会话，强杀其进程组会影响同一运行时的所有会话。保证单会话强杀隔离需要独立的每会话进程生命周期，当前接口不承诺这种隔离。
+
+Codex rollout 回退历史将带明确 `turn_id` 的 `task_complete` / `turn_aborted` 分别投影为 `completed` / `interrupted` 的空消息轮次，与消息页一同返回，供客户端按精确 turn ID 结算。终态记录也计入每页 100 项及 2 MiB 限制；分页不补造缺失终态。正文、普通 error、task_started、会话空闲及无 turn_id 的记录均不证明完成。lastTurnResult 的历史回退只读取与 lastTurnId 匹配的轮次，不能借用页末另一轮的结果。`harness.history.terminals` 日志只记录会话、阶段、终态数量和耗时。
+
+`harness_session_info` 与历史返回的 `session.historyRevision` 由经目录授权打开的 rollout 文件身份、大小及纳秒修改/变更时间生成，不读取正文计算版本。历史先取版本再读内容，避免把并发追加但尚未读到的内容错误确认为已同步。外部 CLI/桌面进程不会向本节点 App Server 的 stdio 广播事件，消费者须用该版本核对外部历史；文件版本不证明 turn 完成或执行权归属。

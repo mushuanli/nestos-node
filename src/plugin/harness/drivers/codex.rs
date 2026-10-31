@@ -93,7 +93,12 @@ impl Codex {
             "harness_session_info" => {
                 let thread = self.summary(&bridge, string(&args, "sessionId")?).await?;
                 let mut session = self.session(&thread);
-                session["writerLock"] = super::writer_lock::inspect(&self.config.home, string(&args, "sessionId")?);
+                session["writerLock"] =
+                    super::writer_lock::inspect(&self.config.home, string(&args, "sessionId")?);
+                attach_recovery(&bridge, &mut session);
+                if let Some(revision) = self.history_revision(&thread).await? {
+                    session["historyRevision"] = json!(revision);
+                }
                 super::usage::attach(&mut session, self.thread_usage(&thread).await);
                 Ok(json!({"session":session}))
             }
@@ -137,7 +142,7 @@ impl Codex {
             "owned":self.owned.try_lock().is_ok_and(|owned|thread["id"].as_str().is_some_and(|id|owned.contains(id))),
             "activeTurnId":thread.get("activeTurnId").cloned().unwrap_or_else(||thread["turns"].as_array().and_then(|turns|turns.iter().find(|turn|turn["status"]=="inProgress")).map(|turn|turn["id"].clone()).unwrap_or(Value::Null)),
             "lastTurnId":thread["lastTurnId"],
-            "lastTurnResult":thread.get("lastTurnResult").cloned().unwrap_or_else(||thread["turns"].as_array().and_then(|turns| turns.last()).and_then(|turn| match turn["status"].as_str() {Some("completed")=>Some("completed"),Some("failed")=>Some("failed"),Some("interrupted")=>Some("cancelled"),_=>None}).map(Value::from).unwrap_or(Value::Null)),
+            "lastTurnResult":last_turn_result(thread),
             "archived":thread["archived"].as_bool().unwrap_or_else(||thread["path"].as_str().is_some_and(|path| path.contains("/archived_sessions/"))),
             "resumable":thread["cwd"].as_str().is_some_and(|cwd| self.authorized(cwd)),"native":metadata})
     }
@@ -241,10 +246,19 @@ impl Codex {
         args: &Value,
         input: Value,
     ) -> Result<Value, Error> {
+        let started = std::time::Instant::now();
         let id = string(args, "sessionId")?;
         self.require_owned(id).await?;
         let params = self.turn_params(bridge, args, input).await?;
         let operation = string(args, "requestId")?;
+        crate::core::events::emit(
+            crate::core::events::Level::Info,
+            "harness.turn.settings",
+            json!({
+            "operation":"harness.turn","operationId":operation,"sessionId":id,"profileId":self.config.id,
+            "stage":"configure","result":"success","model":params["model"],"effort":params["effort"],
+            "summary":params["summary"],"durationMs":started.elapsed().as_millis() as u64}),
+        );
         if let Some(runtime) = &self.runtime {
             runtime.begin(id, operation)?;
         }
@@ -379,8 +393,11 @@ impl Codex {
         thread
     }
     pub(super) async fn history(&self, bridge: &Bridge, args: &Value) -> Result<Value, Error> {
+        let started = std::time::Instant::now();
         let id = string(args, "sessionId")?;
         let mut thread = self.summary(bridge, id).await?;
+        // Capture before reading; a concurrent append must remain visible to the next reconciliation.
+        let revision = self.history_revision(&thread).await?;
         let mut page = self.page(bridge, &thread, args).await?;
         if args["toolDetail"] == "summary" {
             if let Some(turns) = page["turns"].as_array_mut() {
@@ -393,7 +410,11 @@ impl Codex {
         }
         thread["turns"] = page["turns"].clone();
         let mut session = self.session(&thread);
+        if let Some(revision) = revision {
+            session["historyRevision"] = json!(revision);
+        }
         session["writerLock"] = super::writer_lock::inspect(&self.config.home, id);
+        attach_recovery(bridge, &mut session);
         if !args["cursor"].is_string() {
             super::usage::attach(&mut session, self.thread_usage(&thread).await);
         }
@@ -402,11 +423,15 @@ impl Codex {
         if page["eventCursor"].is_object() {
             result["eventCursor"] = page["eventCursor"].clone();
         }
+        log_history_terminals(args, &page, started);
         Ok(result)
     }
     async fn page(&self, bridge: &Bridge, thread: &Value, args: &Value) -> Result<Value, Error> {
         // Rollout files may not contain the answer while the native turn is streaming.
-        if !args["cursor"].is_string() && thread["status"]["type"] == "active" {
+        if !args["cursor"].is_string()
+            && thread["status"]["type"] == "active"
+            && self.owned.lock().await.contains(string(args, "sessionId")?)
+        {
             return self.native_page(bridge, thread, args).await;
         }
         if args["toolDetail"] == "summary" && thread["path"].is_string() {
@@ -439,6 +464,16 @@ impl Codex {
         })
         .await
         .map_err(|_| Error::internal())?
+    }
+    async fn history_revision(&self, thread: &Value) -> Result<Option<String>, Error> {
+        if !thread["path"].is_string() {
+            return Ok(None);
+        }
+        match super::history::revision(&self.config.home, &self.history_path(thread)?).await {
+            Ok(revision) => Ok(Some(revision)),
+            Err(error) if error.code == "ENOENT" => Ok(None),
+            Err(error) => Err(error),
+        }
     }
     fn history_path(&self, thread: &Value) -> Result<String, Error> {
         let path = string(thread, "path")?;
@@ -581,7 +616,7 @@ impl HarnessDriver for Codex {
         json!({"id":self.config.id,"kind":self.config.kind,
             "workspaces":self.config.workspaces.iter().map(|w| json!({"id":w.id})).collect::<Vec<_>>(),
             "projectRuntime":self.config.projects,
-            "capabilities":{"models":true,"slashCommands":true,"commandQueries":true,"usage":true,"history":true,"create":true,"resume":true,"interrupt":true,"interactions":true,"fork":true,"checkpointFork":true,"search":true,"searchPrompts":true,"searchKeywords":true,"rename":true,"archive":true,"unarchive":true,"delete":true,"attachments":["text","image"]}})
+            "capabilities":{"executionRecovery":true,"models":true,"slashCommands":true,"commandQueries":true,"usage":true,"history":true,"create":true,"resume":true,"interrupt":true,"interactions":true,"fork":true,"checkpointFork":true,"search":true,"searchPrompts":true,"searchKeywords":true,"rename":true,"archive":true,"unarchive":true,"delete":true,"attachments":["text","image"]}})
     }
     fn read<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, Result<Value, Error>> {
         Box::pin(async move { self.read(name, args).await })
@@ -620,3 +655,125 @@ mod checkpoints;
 mod commands;
 #[path = "codex/models.rs"]
 mod models;
+
+fn log_history_terminals(args: &Value, page: &Value, started: std::time::Instant) {
+    let count = page["turns"].as_array().map_or(0, |turns| {
+        turns
+            .iter()
+            .filter(|turn| {
+                turn["id"].is_string()
+                    && matches!(
+                        turn["status"].as_str(),
+                        Some("completed" | "interrupted" | "failed" | "cancelled")
+                    )
+            })
+            .count()
+    });
+    if count > 0 {
+        let operation_id = args["requestId"]
+            .as_str()
+            .filter(|id| {
+                id.len() <= 128
+                    && !id.is_empty()
+                    && id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+            })
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                format!(
+                    "history-{}-{}",
+                    std::process::id(),
+                    chrono::Utc::now().timestamp_millis()
+                )
+            });
+        crate::core::events::emit(
+            crate::core::events::Level::Info,
+            "harness.history.terminals",
+            json!({
+                "operation":"harness.history","operationId":operation_id,"sessionId":args["sessionId"],
+            "stage":"terminal_projection","result":"success","terminalCount":count,
+            "durationMs":started.elapsed().as_millis() as u64}),
+        );
+    }
+}
+
+fn last_turn_result(thread: &Value) -> Value {
+    if let Some(result) = thread
+        .get("lastTurnResult")
+        .filter(|value| !value.is_null())
+    {
+        return result.clone();
+    }
+    let Some(id) = thread["lastTurnId"].as_str() else {
+        return Value::Null;
+    };
+    thread["turns"]
+        .as_array()
+        .and_then(|turns| turns.iter().find(|turn| turn["id"] == id))
+        .and_then(|turn| match turn["status"].as_str() {
+            Some("completed") => Some("completed"),
+            Some("failed") => Some("failed"),
+            Some("interrupted" | "cancelled") => Some("cancelled"),
+            _ => None,
+        })
+        .map(Value::from)
+        .unwrap_or(Value::Null)
+}
+
+// Only a cold, unowned native thread and a fresh unlocked observation permit abandonment.
+fn attach_recovery(bridge: &Bridge, session: &mut Value) {
+    let mut recovery = bridge.recovery_context();
+    recovery["state"] = json!(recovery_state(session));
+    recovery["checkedAt"] = session["writerLock"]["checkedAt"].clone();
+    session["executionRecovery"] = recovery;
+}
+fn recovery_state(session: &Value) -> &'static str {
+    if session["writerLock"]["status"] == "held" || session["status"] == "active" {
+        "running"
+    } else if session["owned"] == false
+        && session["loaded"] == false
+        && session["status"] == "notLoaded"
+        && session["activeTurnId"].is_null()
+        && session["writerLock"]["status"] == "not-held"
+    {
+        "detached"
+    } else {
+        "unknown"
+    }
+}
+
+#[cfg(test)]
+mod recovery_tests {
+    use super::*;
+    #[test]
+    fn last_result_never_uses_another_turns_terminal() {
+        let mut thread =
+            json!({"lastTurnId":"unfinished","turns":[{"id":"older","status":"completed"}]});
+        assert!(last_turn_result(&thread).is_null());
+        thread["lastTurnId"] = json!("older");
+        assert_eq!(last_turn_result(&thread), "completed");
+        thread["lastTurnId"] = Value::Null;
+        assert!(last_turn_result(&thread).is_null());
+    }
+    #[test]
+    fn abandonment_requires_cold_unowned_unlocked_native_state() {
+        let cold = json!({"owned":false,"loaded":false,"status":"notLoaded","writerLock":{"status":"not-held"}});
+        assert_eq!(recovery_state(&cold), "detached");
+        for (key, value) in [
+            ("owned", json!(true)),
+            ("loaded", json!(true)),
+            ("activeTurnId", json!("turn")),
+            ("status", json!("idle")),
+        ] {
+            let mut session = cold.clone();
+            session[key] = value;
+            assert_ne!(recovery_state(&session), "detached");
+        }
+        for status in ["held", "unknown"] {
+            let mut session = cold.clone();
+            session["writerLock"]["status"] = json!(status);
+            assert_ne!(recovery_state(&session), "detached");
+        }
+    }
+}

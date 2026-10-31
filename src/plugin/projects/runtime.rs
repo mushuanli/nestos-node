@@ -45,7 +45,11 @@ impl ProjectLauncher for Bubblewrap {
             network(command);
         }
         let executable = resolve_command(&plan.command)?;
-        let invocation = if !executable.starts_with("/usr") && !executable.starts_with("/bin") {
+        // Preserve sibling resources when the executable is already in the mounted native home.
+        let invocation = if !executable.starts_with("/usr")
+            && !executable.starts_with("/bin")
+            && !executable.starts_with(home)
+        {
             command
                 .arg("--ro-bind")
                 .arg(&executable)

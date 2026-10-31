@@ -89,6 +89,11 @@ for line in sys.stdin:
         assert params['delivery'] == 'inline'
         result = {'reviewThreadId':params['threadId'],'turn':{'id':'review-turn'}}
     elif method == 'turn/start':
+        prompt = params['input'][0].get('text', '')
+        if prompt.startswith('fixture:checkpoint-summary-'):
+            expected = prompt.removeprefix('fixture:checkpoint-summary-')
+            assert ('summary' not in params) if expected == 'unset' else params['summary'] == expected
+            assert not any(key in params for key in ('model', 'effort', 'serviceTier'))
         if params['input'][0].get('text') == 'check-model-selection':
             assert params['model'] == 'fixture-model' and params['effort'] == 'high'
         turn_count += 1

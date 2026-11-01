@@ -570,7 +570,7 @@ impl Codex {
                 .await
             {
                 Ok(full) => {
-                    json!({"turns":full["thread"]["turns"],"nextCursor":null,"eventCursor":full["_nestosNodeEventCursor"]})
+                    json!({"turns":full["thread"]["turns"],"nextCursor":null,"eventCursor":full["_cellsEventCursor"]})
                 }
                 Err(error) if error.code == "HARNESS_HISTORY_PENDING" => {
                     json!({"turns":[],"nextCursor":null})

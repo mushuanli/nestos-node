@@ -11,34 +11,6 @@
       "required": [],
       "type": "object"
     },
-    "name": "nestos_node_capabilities"
-  },
-  {
-    "annotations": {
-      "openWorldHint": true,
-      "readOnlyHint": true
-    },
-    "description": "Compatibility alias for nestos_node_capabilities",
-    "inputSchema": {
-      "additionalProperties": false,
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "piagent_capabilities"
-  },
-  {
-    "annotations": {
-      "openWorldHint": true,
-      "readOnlyHint": true
-    },
-    "description": "Compatibility alias for nestos_node_capabilities",
-    "inputSchema": {
-      "additionalProperties": false,
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "fsagent_capabilities"
+    "name": "cells_capabilities"
   }
 ]

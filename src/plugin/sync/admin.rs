@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 pub fn run(args: &[String]) -> Result<()> {
     if args.len() < 2 {
         return Err(Error::new(
-            "usage: nestos-node sync <init|verify|gc|backup|restore|repair> CONFIG [arguments]",
+            "usage: cells sync <init|verify|gc|backup|restore|repair> CONFIG [arguments]",
             400,
         ));
     }

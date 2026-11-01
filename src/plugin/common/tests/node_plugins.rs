@@ -1,7 +1,7 @@
 #[path = "support/mod.rs"]
 mod common;
 use axum::{body::Body, http::StatusCode, routing::get, Json, Router};
-use nestos_node::{
+use cells::{
     app::{Application, State},
     config::Config,
     plugins::{NodePlugin, PluginRegistry},
@@ -28,18 +28,18 @@ async fn switches_remove_routes_and_discovery_without_opening_disabled_services(
         .into_iter()
         .map(|id| (id.into(), false))
         .collect();
-    config.sync = Some(nestos_node::sync::Config {
+    config.sync = Some(cells::sync::Config {
         enabled: true,
         root: root.path().join("not-created"),
         ..Default::default()
     });
-    config.projects = Some(nestos_node::projects::Config {
+    config.projects = Some(cells::projects::Config {
         root: root.path().join("projects-not-created"),
         network: false,
     });
     config
         .harnesses
-        .push(nestos_node::harness::config::ProfileConfig {
+        .push(cells::harness::config::ProfileConfig {
             id: "disabled".into(),
             aliases: vec![],
             kind: "unknown".into(),
@@ -56,14 +56,14 @@ async fn switches_remove_routes_and_discovery_without_opening_disabled_services(
     assert!(application
         .state()
         .services
-        .get::<nestos_node::sync::SyncService>()
+        .get::<cells::sync::SyncService>()
         .is_none());
     assert!(!root.path().join("not-created").exists());
     assert!(!root.path().join("projects-not-created").exists());
     assert!(application
         .state()
         .services
-        .get::<nestos_node::harness::Harnesses>()
+        .get::<cells::harness::Harnesses>()
         .is_none());
     let router = application.router().unwrap();
     for route in [
@@ -166,7 +166,7 @@ fn cli_checks_one_plugin_without_starting_or_leaking_configuration() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("config.toml");
     std::fs::write(&path, format!("listen='127.0.0.1:0'\napi_key='{}'\n[[harnesses]]\nid='broken'\nkind='unknown'\nhome='/missing-test-home'", common::SECRET)).unwrap();
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nestos-node"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_cells"))
         .args(["plugins", "check"])
         .arg(&path)
         .arg("files")

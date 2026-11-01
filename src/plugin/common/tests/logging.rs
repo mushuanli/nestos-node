@@ -18,7 +18,7 @@ impl Drop for Server {
 }
 fn launch(path: &Path) -> Server {
     Server(
-        Command::new(env!("CARGO_BIN_EXE_nestos-node"))
+        Command::new(env!("CARGO_BIN_EXE_cells"))
             .arg(path)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -119,7 +119,7 @@ fn startup_failure_after_config_loading_is_recorded() {
 fn version_query_needs_no_config_and_startup_banner_survives_failure() {
     let root = tempfile::tempdir().unwrap();
     for flag in ["--version", "-V"] {
-        let output = Command::new(env!("CARGO_BIN_EXE_nestos-node"))
+        let output = Command::new(env!("CARGO_BIN_EXE_cells"))
             .arg(flag)
             .current_dir(root.path())
             .output()
@@ -127,15 +127,15 @@ fn version_query_needs_no_config_and_startup_banner_survives_failure() {
         assert!(output.status.success());
         assert_eq!(
             String::from_utf8(output.stdout).unwrap().trim(),
-            format!("nestos-node {}", env!("CARGO_PKG_VERSION"))
+            format!("cells {}", env!("CARGO_PKG_VERSION"))
         );
         assert!(!root.path().join("logs").exists());
     }
-    let output = Command::new(env!("CARGO_BIN_EXE_nestos-node"))
+    let output = Command::new(env!("CARGO_BIN_EXE_cells"))
         .arg(root.path().join("missing.toml"))
         .output()
         .unwrap();
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.starts_with(&format!("nestos-node {}\n", env!("CARGO_PKG_VERSION"))));
+    assert!(stderr.starts_with(&format!("cells {}\n", env!("CARGO_PKG_VERSION"))));
 }

@@ -1,4 +1,4 @@
-use nestos_node::{
+use cells::{
     app::State,
     config::Config,
     projects::{call, runtime::ProjectRuntime},
@@ -53,17 +53,17 @@ async fn register(state: &Arc<State>, path: &str, create: bool) -> Value {
 
 #[tokio::test]
 async fn harness_home_executable_can_read_sibling_resources_without_extra_mounts() {
-    if std::env::var("PI_AGENT_PROJECT_TEST").as_deref() != Ok("1") {return;}
+    if std::env::var("CELLS_PROJECT_TEST").as_deref() != Ok("1") {return;}
     use std::os::unix::fs::PermissionsExt;
     let root = tempfile::tempdir().unwrap();
     let config = deployment(root.path());
     let state = State::from_config(&config).unwrap();
     let project = register(&state, "group/existing", false).await;
-    state.services.require::<nestos_node::process::Execution>().unwrap().accept();
-    let stored = state.services.require::<nestos_node::projects::ProjectService>().unwrap()
+    state.services.require::<cells::process::Execution>().unwrap().accept();
+    let stored = state.services.require::<cells::projects::ProjectService>().unwrap()
         .get(0, project["id"].as_str().unwrap()).unwrap();
     let runtime = ProjectRuntime::new(&state, 0, stored);
-    let mut profile = nestos_node::harness::config::validate(&config).unwrap().remove(0);
+    let mut profile = cells::harness::config::validate(&config).unwrap().remove(0);
     let binary = profile.home.join("native");
     std::fs::write(&binary, "#!/bin/sh\nexec /bin/cat \"$(dirname \"$0\")/resource\"\n").unwrap();
     std::fs::write(profile.home.join("resource"), "ready").unwrap();
@@ -83,17 +83,17 @@ async fn source_aliases_refuse_runtime_paths_without_changing_default_namespaces
     let project = register(&state, "group/existing", false).await;
     let stored = state
         .services
-        .get::<nestos_node::projects::ProjectService>()
+        .get::<cells::projects::ProjectService>()
         .unwrap()
         .get(0, project["id"].as_str().unwrap())
         .unwrap();
     let runtime = ProjectRuntime::new(&state, 0, stored);
     state
         .services
-        .require::<nestos_node::process::Execution>()
+        .require::<cells::process::Execution>()
         .unwrap()
         .accept();
-    let mut profile = nestos_node::harness::config::validate(&config)
+    let mut profile = cells::harness::config::validate(&config)
         .unwrap()
         .remove(0);
     profile.command = "/bin/true".into();
@@ -107,7 +107,7 @@ async fn remount(
     state: &Arc<State>,
     project: &Value,
     access: &str,
-) -> Result<Value, nestos_node::core::error::Error> {
+) -> Result<Value, cells::core::error::Error> {
     call(
         state,
         0,
@@ -239,7 +239,7 @@ async fn mounts_are_server_owned_attenuated_and_revision_fenced() {
         "EBUSY"
     );
     drop(guard);
-    assert_eq!(call(&state,0,"project_exec",json!({"projectId":id,"revision":1,"epoch":state.services.require::<nestos_node::process::Execution>().unwrap().epoch(),"requestId":"cmd","command":"/bin/true","args":[]})).await.unwrap_err().code,"PROJECT_REVISION_CHANGED");
+    assert_eq!(call(&state,0,"project_exec",json!({"projectId":id,"revision":1,"epoch":state.services.require::<cells::process::Execution>().unwrap().epoch(),"requestId":"cmd","command":"/bin/true","args":[]})).await.unwrap_err().code,"PROJECT_REVISION_CHANGED");
 }
 #[tokio::test]
 async fn replacement_does_not_silently_retarget_projects_and_launcher_contains_only_grants() {
@@ -249,19 +249,19 @@ async fn replacement_does_not_silently_retarget_projects_and_launcher_contains_o
     let project = register(&state, "group/existing", false).await;
     state
         .services
-        .require::<nestos_node::process::Execution>()
+        .require::<cells::process::Execution>()
         .unwrap()
         .accept();
     let stored = state
         .services
-        .get::<nestos_node::projects::ProjectService>()
+        .get::<cells::projects::ProjectService>()
         .unwrap()
         .get(0, project["id"].as_str().unwrap())
         .unwrap();
     let runtime = ProjectRuntime::new(&state, 0, stored);
     let fixture = root.path().join("codex-native");
     std::fs::write(&fixture, "executable").unwrap();
-    let mut profile = nestos_node::harness::config::validate(&config)
+    let mut profile = cells::harness::config::validate(&config)
         .unwrap()
         .remove(0);
     profile.command = fixture.to_str().unwrap().into();
@@ -334,7 +334,7 @@ async fn register_error(state: &Arc<State>) -> &'static str {
 
 #[tokio::test]
 async fn native_project_bash_and_codex_share_directory_grants() {
-    if std::env::var("PI_AGENT_PROJECT_TEST").as_deref() != Ok("1") {
+    if std::env::var("CELLS_PROJECT_TEST").as_deref() != Ok("1") {
         return;
     }
     use std::os::unix::fs::PermissionsExt;
@@ -348,26 +348,26 @@ async fn native_project_bash_and_codex_share_directory_grants() {
     )
     .unwrap();
     std::fs::set_permissions(&fixture, std::fs::Permissions::from_mode(0o700)).unwrap();
-    config.harnesses[0].command = if std::env::var("PI_AGENT_PROJECT_CODEX").as_deref() == Ok("1") {
+    config.harnesses[0].command = if std::env::var("CELLS_PROJECT_CODEX").as_deref() == Ok("1") {
         "codex".into()
     } else {
         fixture.to_str().unwrap().into()
     };
     let state = State::from_config(&config).unwrap();
-    nestos_node::process::enable(&state).await.unwrap();
+    cells::process::enable(&state).await.unwrap();
     let project = register(&state, "group/existing", false).await;
     let id = project["id"].as_str().unwrap();
     let configured=call(&state,0,"project_configure",json!({"projectId":id,"revision":1,"name":"Notes","mounts":[{"alias":"reference","path":"","at":"/workspace/ref","access":"ro"}]})).await.unwrap()["project"].clone();
     std::fs::write(root.path().join("reference/guide"), "reference").unwrap();
-    let started=call(&state,0,"project_exec",json!({"projectId":id,"revision":2,"epoch":state.services.require::<nestos_node::process::Execution>().unwrap().epoch(),"requestId":"bash","command":"/bin/bash","args":["-c","set -eu; test $(pwd) = /workspace; cat ref/guide; test ! -e /etc/passwd; if echo x > ref/guide 2>/dev/null; then exit 7; fi; echo project > note"],"timeoutMs":5000})).await.unwrap();
+    let started=call(&state,0,"project_exec",json!({"projectId":id,"revision":2,"epoch":state.services.require::<cells::process::Execution>().unwrap().epoch(),"requestId":"bash","command":"/bin/bash","args":["-c","set -eu; test $(pwd) = /workspace; cat ref/guide; test ! -e /etc/passwd; if echo x > ref/guide 2>/dev/null; then exit 7; fi; echo project > note"],"timeoutMs":5000})).await.unwrap();
     assert!(started["process"].is_object());
     let result = loop {
-        let result = nestos_node::process::status(
+        let result = cells::process::status(
             &state,
             0,
             state
                 .services
-                .require::<nestos_node::process::Execution>()
+                .require::<cells::process::Execution>()
                 .unwrap()
                 .epoch(),
             "bash",
@@ -385,7 +385,7 @@ async fn native_project_bash_and_codex_share_directory_grants() {
     );
     let epoch = state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .profiles()["epoch"]
         .clone();
@@ -396,7 +396,7 @@ async fn native_project_bash_and_codex_share_directory_grants() {
     args["requestId"] = json!("create");
     let created = state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .project_call(&state, 0, "harness_create", args)
         .await
@@ -406,7 +406,7 @@ async fn native_project_bash_and_codex_share_directory_grants() {
         created["result"]["session"]["cwd"],
         format!("/projects/{id}")
     );
-    if std::env::var("PI_AGENT_PROJECT_CODEX").as_deref() != Ok("1") {
+    if std::env::var("CELLS_PROJECT_CODEX").as_deref() != Ok("1") {
         let session = created["result"]["session"]["id"].clone();
         let mut args = base.clone();
         args["sessionId"] = session.clone();
@@ -414,7 +414,7 @@ async fn native_project_bash_and_codex_share_directory_grants() {
         args["prompt"] = json!("test");
         let turn = state
             .services
-            .require::<nestos_node::harness::Harnesses>()
+            .require::<cells::harness::Harnesses>()
             .unwrap()
             .project_call(&state, 0, "harness_turn", args)
             .await
@@ -440,7 +440,7 @@ async fn native_project_bash_and_codex_share_directory_grants() {
         assert_eq!(
             state
                 .services
-                .require::<nestos_node::harness::Harnesses>()
+                .require::<cells::harness::Harnesses>()
                 .unwrap()
                 .project_call(&state, 0, "harness_interrupt", args)
                 .await
@@ -456,23 +456,23 @@ async fn native_project_bash_and_codex_share_directory_grants() {
     args["sessionId"] = created["result"]["session"]["id"].clone();
     assert!(state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .project_call(&state, 0, "harness_session_read", args)
         .await
         .is_err());
     state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .close()
         .await;
 }
 
-fn patch_note(export: &nestos_node::fs::Export, path: &str) {
+fn patch_note(export: &cells::fs::Export, path: &str) {
     export
         .apply(
-            &nestos_node::fs::mutation::Change::Metadata {
+            &cells::fs::mutation::Change::Metadata {
                 path: path.into(),
                 patch: json!({"_document_chat":{"session":"stable-session"}})
                     .as_object()
@@ -487,7 +487,7 @@ fn patch_note(export: &nestos_node::fs::Export, path: &str) {
 
 #[tokio::test]
 async fn project_scope_moves_ancestor_metadata_and_preserves_identity_across_remount() {
-    use nestos_node::fs::mutation::Change;
+    use cells::fs::mutation::Change;
     let root = tempfile::tempdir().unwrap();
     let config = deployment(root.path());
     let state = State::from_config(&config).unwrap();
@@ -562,7 +562,7 @@ async fn project_scope_migrates_legacy_directory_and_keeps_owner_records_separat
     let project_root = root.path().join("exports/group/existing");
     std::fs::write(project_root.join("note.md"), "note").unwrap();
     {
-        let export = nestos_node::fs::Export::exclusive(&project_root).unwrap();
+        let export = cells::fs::Export::exclusive(&project_root).unwrap();
         patch_note(&export, "note.md");
     }
     std::fs::write(project_root.join(".nestos/info.seq"), "preserved-sequence").unwrap();

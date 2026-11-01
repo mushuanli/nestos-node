@@ -34,8 +34,8 @@ pub fn identity(state: &State, headers: &HeaderMap) -> Result<usize, Error> {
     })?;
     let authorization = state.auth.client(identity).authorization();
     for (header, field) in [
-        ("x-pi-agent-principal", "principalId"),
-        ("x-pi-agent-grant-revision", "revision"),
+        ("x-cells-principal", "principalId"),
+        ("x-cells-grant-revision", "revision"),
     ] {
         if headers
             .get(header)

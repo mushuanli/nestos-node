@@ -2,12 +2,12 @@
 listen = "127.0.0.1:8787"
 execution = false
 log_level = "info"
-api_key_env = "NESTOS_NODE_API_KEY"
+api_key_env = "CELLS_API_KEY"
 allowed_origins = ["http://localhost:3000", "http://localhost:1420"]
 
 [sync]
 enabled = true
-root = "/srv/nestos-node-sync"
+root = "/srv/cells-sync"
 # A missing or empty root is initialized on first start; `sync init` does it explicitly.
 # All other sync settings use built-in defaults; override only when needed.
 # Optional: detect accidental storage replacement, including an auto-created store.

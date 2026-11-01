@@ -3,7 +3,7 @@ listen = "127.0.0.1:8787"
 server_id = "my-agent-node"
 execution = false
 allowed_origins = ["http://localhost:3000", "http://localhost:1420"]
-api_key_env = "NESTOS_NODE_API_KEY"
+api_key_env = "CELLS_API_KEY"
 
 [[harnesses]]
 id = "codex"

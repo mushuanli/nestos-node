@@ -1,6 +1,6 @@
 //! Failed observations cannot create an unknown native mutation or consume its queue slot.
 use super::{fixture, mutate, service};
-use nestos_node::harness::Harnesses;
+use cells::harness::Harnesses;
 use serde_json::{json, Value};
 
 fn count(host: &fixture::Host, endpoint: &str) -> usize {

@@ -1,6 +1,6 @@
 //! Native responses, rather than matching command history text, confirm serial commands.
 use super::{fixture, mutate, service_options};
-use nestos_node::harness::Harnesses;
+use cells::harness::Harnesses;
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
 

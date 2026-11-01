@@ -89,7 +89,7 @@ pub(crate) fn configured_auth(
     let server_id = match &config.server_id {
         Some(id) => Some(id.clone()),
         None if config.execution || !config.harnesses.is_empty() => {
-            Some(format!("pi-agent-{}", crate::app::random_epoch()?))
+            Some(format!("cells-{}", crate::app::random_epoch()?))
         }
         None => None,
     };

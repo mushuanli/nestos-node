@@ -1,5 +1,5 @@
-//! `nestos-node` — an authenticated HTTP file service with optional remote command
-//! execution.
+//! `cells` — a single intelligent node of NestOS, integrating information and
+//! agents like a cell in a honeycomb.
 //!
 //! # Layout
 //!

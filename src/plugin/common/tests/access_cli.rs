@@ -1,4 +1,4 @@
-use nestos_node::{app::State, config::Config};
+use cells::{app::State, config::Config};
 use serde_json::Value;
 use std::{
     fs,
@@ -23,7 +23,7 @@ impl Fixture {
         Self { root, path }
     }
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_nestos-node"))
+        Command::new(env!("CARGO_BIN_EXE_cells"))
             .args(["access", "--config"])
             .arg(&self.path)
             .args(args)
@@ -245,7 +245,7 @@ fn shares_basic_identity_and_credential_rotation_do_not_delete_data() {
 #[test]
 fn help_works_without_config_and_errors_do_not_echo_configuration_or_cli_secrets() {
     let f = Fixture::new();
-    let result = Command::new(env!("CARGO_BIN_EXE_nestos-node"))
+    let result = Command::new(env!("CARGO_BIN_EXE_cells"))
         .args(["--help"])
         .current_dir(f.root.path())
         .output()
@@ -283,7 +283,7 @@ async fn cli_directory_grants_are_enforced_by_a_real_http_listener() {
     reader.token_env = None;
     reader.token = Some(READER.into());
     let state = State::from_config(&config).unwrap();
-    let app = nestos_node::router(state, &[]).unwrap();
+    let app = cells::router(state, &[]).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move {
@@ -392,7 +392,7 @@ fn inline_grants_stay_with_their_export_when_another_share_is_added() {
         .unwrap();
     assert_eq!(first.grants.len(), 1);
     assert!(first.grants[0].execute);
-    assert!(first.grants[0].access == nestos_node::config::model::Access::Rw);
+    assert!(first.grants[0].access == cells::config::model::Access::Rw);
     assert_eq!(other.grants.len(), 1);
     assert!(!other.grants[0].execute);
     assert!(!f.text().contains("[[exports.grants]]"));

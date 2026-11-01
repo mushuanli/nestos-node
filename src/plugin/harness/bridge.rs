@@ -76,9 +76,7 @@ impl Bridge {
         if let Some(runtime) = &runtime {
             command
                 .env("HOME", "/tmp")
-                .env("NESTOS_NODE_PROJECT", &runtime.project.id)
-                .env("PI_AGENT_PROJECT", &runtime.project.id)
-                .env("FS_AGENT_PROJECT", &runtime.project.id);
+                .env("CELLS_PROJECT", &runtime.project.id);
         }
         let mut child = command
             .env("CODEX_HOME", &config.home)
@@ -409,7 +407,7 @@ fn dispatch(message: Value, pending: &PendingCalls, events: &Mutex<Events>) -> R
                 );
             }
             if reply.method == "thread/read" && result.is_object() {
-                result["_nestosNodeEventCursor"] = events.lock().unwrap().position();
+                result["_cellsEventCursor"] = events.lock().unwrap().position();
             }
             Ok(result)
         };

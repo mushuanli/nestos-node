@@ -55,7 +55,7 @@ fn discover(state: &State, identity: usize) -> Result<Value, Failure> {
     Ok(
         json!({"resultType":"complete","ttlMs":0,"cacheScope":"private","supportedVersions":[VERSION],
         "capabilities":{"tools":{},"resources":{}},
-        "_meta":{"io.modelcontextprotocol/serverInfo":{"name":"nestos-node","version":env!("CARGO_PKG_VERSION")},
-            "itookit/nestos-node":descriptor.clone(),"itookit/mindos-node":descriptor.clone(),"itookit/pi-agent":descriptor}}),
+        "_meta":{"io.modelcontextprotocol/serverInfo":{"name":"cells","version":env!("CARGO_PKG_VERSION")},
+            "itookit/cells":descriptor}}),
     )
 }

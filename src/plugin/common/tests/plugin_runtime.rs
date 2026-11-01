@@ -1,6 +1,6 @@
 #[path = "support/mod.rs"]
 mod common;
-use nestos_node::{
+use cells::{
     app::State,
     config::Config,
     fs::Export,

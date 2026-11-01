@@ -5,11 +5,11 @@ execution = true
 
 [[principals]]
 id = "alice"
-token_env = "PI_ALICE_TOKEN"
+token_env = "CELLS_ALICE_TOKEN"
 
 [[principals]]
 id = "bob"
-token_env = "PI_BOB_TOKEN"
+token_env = "CELLS_BOB_TOKEN"
 
 [[exports]]
 alias = "knowledge"
@@ -33,7 +33,7 @@ grants = [
 ]
 
 [projects]
-root = "/srv/nestos-node-private/projects"
+root = "/srv/cells-private/projects"
 network = true
 
 # Each principal uses their own native home, outside all exported directories.
@@ -42,11 +42,11 @@ id = "alice-codex"
 kind = "codex"
 principal_id = "alice"
 projects = true
-home = "/srv/nestos-node-private/alice/codex"
+home = "/srv/cells-private/alice/codex"
 
 [[harnesses]]
 id = "bob-codex"
 kind = "codex"
 principal_id = "bob"
 projects = true
-home = "/srv/nestos-node-private/bob/codex"
+home = "/srv/cells-private/bob/codex"

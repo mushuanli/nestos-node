@@ -148,8 +148,7 @@ fn environment(
     if let Some(runtime) = runtime {
         command
             .env("HOME", "/tmp")
-            .env("NESTOS_NODE_PROJECT", &runtime.project.id)
-            .env("PI_AGENT_PROJECT", &runtime.project.id);
+            .env("CELLS_PROJECT", &runtime.project.id);
     } else if let Some(workspace) = profile.workspaces.first() {
         command.current_dir(&workspace.path);
     }
@@ -252,7 +251,7 @@ fn arguments() -> Vec<String> {
 fn overlay(profile: &ProfileConfig) -> Result<tempfile::NamedTempFile, Error> {
     use std::io::Write;
     let mut file = tempfile::Builder::new()
-        .prefix(".nestos-node-transport-")
+        .prefix(".cells-transport-")
         .suffix(".yml")
         .tempfile_in(&profile.home)?;
     file.write_all(b"- id: webserver\n  config:\n    host: 127.0.0.1\n    port: 0\n- id: web-runtime\n  config:\n    openBrowser: false\n    printUrl: true\n")?;

@@ -1,5 +1,5 @@
 use axum::http::StatusCode;
-use nestos_node::{app::State, projects};
+use cells::{app::State, projects};
 use serde_json::json;
 #[allow(dead_code)]
 #[path = "../../common/tests/support/directory_acl.rs"]
@@ -21,11 +21,11 @@ async fn explicit_execution_grant_allows_a_readonly_native_session_without_file_
     std::fs::set_permissions(&peer, std::fs::Permissions::from_mode(0o700)).unwrap();
     let mut c = config(root.path(), false);
     c.execution = true;
-    c.exports[0].grants[0].access = nestos_node::config::Access::Ro;
+    c.exports[0].grants[0].access = cells::config::Access::Ro;
     c.exports[0].grants[0].execute = true;
     c.harnesses=vec![toml::from_str(&format!("id='model'\nkind='codex'\nprincipal_id='alice'\nprojects=true\ncommand={peer:?}\nhome={home:?}")).unwrap()];
     let state = State::from_config(&c).unwrap();
-    nestos_node::process::enable(&state).await.unwrap();
+    cells::process::enable(&state).await.unwrap();
     let who = state.auth.index("alice").unwrap();
     let project = projects::call(
         &state,
@@ -38,10 +38,10 @@ async fn explicit_execution_grant_allows_a_readonly_native_session_without_file_
         .clone();
     assert_eq!(project["capabilities"]["fileWrite"], false);
     assert_eq!(project["capabilities"]["sessionControl"], true);
-    let mut args = json!({"profileId":"model","projectId":project["id"],"revision":project["revision"],"epoch":state.services.require::<nestos_node::harness::Harnesses>().unwrap().profiles()["epoch"],"requestId":"create","workspaceId":project["id"]});
+    let mut args = json!({"profileId":"model","projectId":project["id"],"revision":project["revision"],"epoch":state.services.require::<cells::harness::Harnesses>().unwrap().profiles()["epoch"],"requestId":"create","workspaceId":project["id"]});
     let created = state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .project_call(&state, who, "harness_create", args.clone())
         .await
@@ -52,7 +52,7 @@ async fn explicit_execution_grant_allows_a_readonly_native_session_without_file_
     args["prompt"] = json!("read-only analysis");
     let turn = state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .project_call(&state, who, "harness_turn", args.clone())
         .await
@@ -63,7 +63,7 @@ async fn explicit_execution_grant_allows_a_readonly_native_session_without_file_
     assert_eq!(
         state
             .services
-            .require::<nestos_node::harness::Harnesses>()
+            .require::<cells::harness::Harnesses>()
             .unwrap()
             .project_call(&state, who, "harness_interrupt", args)
             .await
@@ -72,7 +72,7 @@ async fn explicit_execution_grant_allows_a_readonly_native_session_without_file_
     );
     state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .close()
         .await;
@@ -96,10 +96,10 @@ async fn execution_permission_does_not_make_a_readonly_directory_writable_in_the
     drop(state);
     let mut c = config(root.path(), false);
     c.execution = true;
-    c.exports[0].grants[0].access = nestos_node::config::Access::Ro;
+    c.exports[0].grants[0].access = cells::config::Access::Ro;
     c.exports[0].grants[0].execute = true;
     let state = State::from_config(&c).unwrap();
-    nestos_node::process::enable(&state).await.unwrap();
+    cells::process::enable(&state).await.unwrap();
     let who = state.auth.index("alice").unwrap();
     let p = projects::call(
         &state,
@@ -110,15 +110,15 @@ async fn execution_permission_does_not_make_a_readonly_directory_writable_in_the
     .await
     .unwrap()["project"]
         .clone();
-    projects::call(&state,who,"project_exec",json!({"projectId":p["id"],"revision":p["revision"],"requestId":"ro-shell","epoch":state.services.require::<nestos_node::process::Execution>().unwrap().epoch(),"command":"/bin/sh","args":["-c","cat /workspace/readme.txt; if touch /workspace/not-allowed; then exit 9; fi"],"timeoutMs":5000})).await.unwrap();
+    projects::call(&state,who,"project_exec",json!({"projectId":p["id"],"revision":p["revision"],"requestId":"ro-shell","epoch":state.services.require::<cells::process::Execution>().unwrap().epoch(),"command":"/bin/sh","args":["-c","cat /workspace/readme.txt; if touch /workspace/not-allowed; then exit 9; fi"],"timeoutMs":5000})).await.unwrap();
     let result = tokio::time::timeout(std::time::Duration::from_secs(7), async {
         loop {
-            let status = nestos_node::process::status(
+            let status = cells::process::status(
                 &state,
                 who,
                 state
                     .services
-                    .require::<nestos_node::process::Execution>()
+                    .require::<cells::process::Execution>()
                     .unwrap()
                     .epoch(),
                 "ro-shell",

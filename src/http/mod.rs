@@ -24,8 +24,8 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 
 /// Headers a browser client may send; anything else fails the CORS preflight.
 const ALLOWED_HEADERS: [&str; 10] = [
-    "x-pi-agent-principal",
-    "x-pi-agent-grant-revision",
+    "x-cells-principal",
+    "x-cells-grant-revision",
     "authorization",
     "content-type",
     "range",

@@ -1,7 +1,7 @@
 //! Export-level behaviour that does not need HTTP: capability opening, restart
 //! recovery and revision retirement.
 
-use nestos_node::fs::{Export, Exports};
+use cells::fs::{Export, Exports};
 
 #[test]
 fn exclusive_open_holds_the_lock_and_a_second_open_fails() {
@@ -86,7 +86,7 @@ fn the_registry_lists_aliases_and_can_invalidate_all_revisions() {
 
 #[test]
 fn file_metadata_is_lazy_remote_durable_and_mount_independent() {
-    use nestos_node::fs::mutation::Change;
+    use cells::fs::mutation::Change;
     use serde_json::json;
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join("nested")).unwrap();

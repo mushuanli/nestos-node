@@ -1,4 +1,4 @@
-use nestos_node::{app::State, config::Config, projects::call, sync::SyncService};
+use cells::{app::State, config::Config, projects::call, sync::SyncService};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{io::Write, os::unix::fs::PermissionsExt, sync::Arc};
@@ -55,7 +55,7 @@ fn upload(s: &SyncService, bytes: &[u8]) -> String {
 fn publish(state: &State, seq: u64, entries: Value) -> String {
     let s = state
         .services
-        .get::<nestos_node::sync::SyncService>()
+        .get::<cells::sync::SyncService>()
         .unwrap();
     let manifest = upload(
         s,
@@ -89,7 +89,7 @@ async fn setup(root: &std::path::Path) -> (Config, Arc<State>, Value) {
     let state = State::from_config(&config).unwrap();
     let s = state
         .services
-        .get::<nestos_node::sync::SyncService>()
+        .get::<cells::sync::SyncService>()
         .unwrap();
     s.register(&json!({"replicaId":"A"})).unwrap();
     s.activate("A", &json!({"scopes":[]})).unwrap();
@@ -110,7 +110,7 @@ async fn setup(root: &std::path::Path) -> (Config, Arc<State>, Value) {
     (config, state, project)
 }
 async fn bind(state: &Arc<State>, project: &Value, target: &str) -> Value {
-    call(state,0,"project_sync_bind",json!({"bindingId":"binding","projectId":project["id"],"revision":project["revision"],"syncProjectId":"p","datasetId":"files","historyEpoch":state.services.get::<nestos_node::sync::SyncService>().unwrap().epoch(),"target":target})).await.unwrap()
+    call(state,0,"project_sync_bind",json!({"bindingId":"binding","projectId":project["id"],"revision":project["revision"],"syncProjectId":"p","datasetId":"files","historyEpoch":state.services.get::<cells::sync::SyncService>().unwrap().epoch(),"target":target})).await.unwrap()
 }
 async fn preview(state: &Arc<State>) -> Value {
     call(
@@ -123,7 +123,7 @@ async fn preview(state: &Arc<State>) -> Value {
     .unwrap()["plan"]
         .clone()
 }
-async fn execute(state: &Arc<State>, id: &Value) -> Result<Value, nestos_node::core::error::Error> {
+async fn execute(state: &Arc<State>, id: &Value) -> Result<Value, cells::core::error::Error> {
     call(
         state,
         0,
@@ -139,7 +139,7 @@ async fn directory_sync_is_incremental_durable_and_never_propagates_deletion() {
     let hash = upload(
         state
             .services
-            .get::<nestos_node::sync::SyncService>()
+            .get::<cells::sync::SyncService>()
             .unwrap(),
         b"#!/bin/sh\necho hello\n",
     );
@@ -177,7 +177,7 @@ async fn target_edits_and_stale_heads_are_rejected_before_writing() {
     let (_, state, project) = setup(root.path()).await;
     let s = state
         .services
-        .get::<nestos_node::sync::SyncService>()
+        .get::<cells::sync::SyncService>()
         .unwrap();
     let hash = upload(s, b"local");
     publish(
@@ -254,7 +254,7 @@ async fn resumes_a_published_file_before_its_baseline_checkpoint_after_restart()
     let hash = upload(
         state
             .services
-            .get::<nestos_node::sync::SyncService>()
+            .get::<cells::sync::SyncService>()
             .unwrap(),
         b"new",
     );
@@ -310,7 +310,7 @@ async fn readonly_mounts_policy_changes_and_duplicate_targets_cannot_expand_sync
     let (_, state, project) = setup(root.path()).await;
     publish(&state, 2, json!([]));
     bind(&state, &project, "sub").await;
-    let mut input = json!({"bindingId":"other","projectId":project["id"],"revision":project["revision"],"syncProjectId":"p","datasetId":"files","historyEpoch":state.services.get::<nestos_node::sync::SyncService>().unwrap().epoch(),"target":""});
+    let mut input = json!({"bindingId":"other","projectId":project["id"],"revision":project["revision"],"syncProjectId":"p","datasetId":"files","historyEpoch":state.services.get::<cells::sync::SyncService>().unwrap().epoch(),"target":""});
     assert_eq!(
         call(&state, 0, "project_sync_bind", input.clone())
             .await
@@ -347,7 +347,7 @@ async fn readonly_mounts_policy_changes_and_duplicate_targets_cannot_expand_sync
     )
     .await
     .unwrap();
-    let mounted = json!({"bindingId":"binding","projectId":configured["id"],"revision":configured["revision"],"syncProjectId":"p","datasetId":"files","historyEpoch":state.services.get::<nestos_node::sync::SyncService>().unwrap().epoch(),"target":"sub"});
+    let mounted = json!({"bindingId":"binding","projectId":configured["id"],"revision":configured["revision"],"syncProjectId":"p","datasetId":"files","historyEpoch":state.services.get::<cells::sync::SyncService>().unwrap().epoch(),"target":"sub"});
     assert_eq!(
         call(&state, 0, "project_sync_bind", mounted)
             .await
@@ -367,7 +367,7 @@ async fn readonly_mounts_policy_changes_and_duplicate_targets_cannot_expand_sync
     .await
     .unwrap()["project"]
         .clone();
-    let input = json!({"bindingId":"readonly","projectId":readonly["id"],"revision":readonly["revision"],"syncProjectId":"p","datasetId":"files","historyEpoch":state.services.get::<nestos_node::sync::SyncService>().unwrap().epoch(),"target":""});
+    let input = json!({"bindingId":"readonly","projectId":readonly["id"],"revision":readonly["revision"],"syncProjectId":"p","datasetId":"files","historyEpoch":state.services.get::<cells::sync::SyncService>().unwrap().epoch(),"target":""});
     assert_eq!(
         call(&state, 0, "project_sync_bind", input.clone())
             .await
@@ -398,7 +398,7 @@ async fn configure(state: &Arc<State>, revision: u64, direction: &str) -> Value 
 fn dataset_contents(state: &State) -> Value {
     let sync = state
         .services
-        .get::<nestos_node::sync::SyncService>()
+        .get::<cells::sync::SyncService>()
         .unwrap();
     let head = sync.directory_head("p", "files").unwrap();
     serde_json::from_slice(
@@ -415,7 +415,7 @@ async fn both_directions_converge_independent_edits_and_keep_unique_files() {
     let first = upload(
         state
             .services
-            .get::<nestos_node::sync::SyncService>()
+            .get::<cells::sync::SyncService>()
             .unwrap(),
         b"original",
     );
@@ -437,7 +437,7 @@ async fn both_directions_converge_independent_edits_and_keep_unique_files() {
     let other = upload(
         state
             .services
-            .get::<nestos_node::sync::SyncService>()
+            .get::<cells::sync::SyncService>()
             .unwrap(),
         b"cloud",
     );
@@ -484,7 +484,7 @@ async fn conflict_content_is_readable_and_source_selection_creates_a_new_review(
     let original = upload(
         state
             .services
-            .get::<nestos_node::sync::SyncService>()
+            .get::<cells::sync::SyncService>()
             .unwrap(),
         b"baseline\n",
     );
@@ -501,7 +501,7 @@ async fn conflict_content_is_readable_and_source_selection_creates_a_new_review(
     let hash = upload(
         state
             .services
-            .get::<nestos_node::sync::SyncService>()
+            .get::<cells::sync::SyncService>()
             .unwrap(),
         b"dataset\n",
     );
@@ -599,7 +599,7 @@ async fn recovers_original_upload_receipt_after_restart_even_when_the_head_advan
     let other = upload(
         state
             .services
-            .get::<nestos_node::sync::SyncService>()
+            .get::<cells::sync::SyncService>()
             .unwrap(),
         b"later cloud",
     );
@@ -626,7 +626,7 @@ async fn compares_binary_limits_and_browses_only_authorized_project_directories(
     let hash = upload(
         state
             .services
-            .get::<nestos_node::sync::SyncService>()
+            .get::<cells::sync::SyncService>()
             .unwrap(),
         b"data\0",
     );

@@ -1,5 +1,5 @@
 //! Connection hints; the entry point separately prints the configured API Key.
-use nestos_node::{app::State, config::Config};
+use cells::{app::State, config::Config};
 use serde::Serialize;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 
@@ -195,15 +195,15 @@ mod tests {
 
     #[test]
     fn environment_authentication_reports_only_the_reference() {
-        let config = config("token_env='NESTOS_NODE_TOKEN'");
+        let config = config("token_env='CELLS_TOKEN'");
         let text = summary(&config, "0.0.0.0:43210".parse().unwrap(), None, None);
-        assert!(text.contains("token from environment variable NESTOS_NODE_TOKEN"));
+        assert!(text.contains("token from environment variable CELLS_TOKEN"));
         assert!(text.contains("<server-ip>"));
         assert!(text.contains(":43210"));
     }
 
     fn permission_fixture() -> (Vec<tempfile::TempDir>, std::sync::Arc<State>) {
-        use nestos_node::{
+        use cells::{
             auth::{Auth, Client},
             fs::{Export, Exports},
         };

@@ -89,9 +89,9 @@ class EventObserver:
 
 
 def main():
-    command = os.environ.get('NESTOS_NODE_CLAUDE_COMMAND') or shutil.which('claude')
-    assert command, 'Install Claude Code or set NESTOS_NODE_CLAUDE_COMMAND'
-    binary = pathlib.Path(__file__).resolve().parents[4] / 'target/debug/nestos-node'
+    command = os.environ.get('CELLS_CLAUDE_COMMAND') or shutil.which('claude')
+    assert command, 'Install Claude Code or set CELLS_CLAUDE_COMMAND'
+    binary = pathlib.Path(__file__).resolve().parents[4] / 'target/debug/cells'
     assert binary.is_file(), 'Run cargo build first'
     with tempfile.TemporaryDirectory(prefix='hs-real-claude-') as temporary:
         root = pathlib.Path(temporary)
@@ -102,7 +102,7 @@ def main():
         with socket.socket() as free:
             free.bind(('127.0.0.1', 0))
             port = free.getsockname()[1]
-        config = root / 'nestos-node.toml'
+        config = root / 'cells.toml'
         config.write_text(f'listen="127.0.0.1:{port}"\nexecution=true\nserver_id="real-claude-test"\ntoken="fixture-token-0123456789abcdef"\n[projects]\nroot={json.dumps(str(root/"catalog"))}\nnetwork=true\n[[exports]]\nalias="root"\npath={json.dumps(str(root/"export"))}\naccess="rw"\n[[harnesses]]\nid="claude"\nkind="claude"\ncommand={json.dumps(command)}\nhome={json.dumps(str(root/"native"))}\nprojects=true\n')
         env = {'PATH': os.environ['PATH'], 'HOME': str(root), 'CLAUDE_CONFIG_DIR': str(root / 'native'), 'ANTHROPIC_API_KEY': 'local-fixture-key', 'ANTHROPIC_BASE_URL': f'http://127.0.0.1:{model.server_port}', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1'}
         gateway = subprocess.Popen([str(binary), str(config)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -2,7 +2,7 @@
 
 use crate::common::{app, app_export, body_bytes, body_json, request};
 use axum::{body::Body, http::StatusCode};
-use nestos_node::fs::Export;
+use cells::fs::Export;
 use tower::ServiceExt;
 
 #[tokio::test]

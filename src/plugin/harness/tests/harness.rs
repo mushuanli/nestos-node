@@ -5,7 +5,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use http_body_util::BodyExt;
-use nestos_node::{
+use cells::{
     app::State,
     config::Config,
     harness::{config::ProfileConfig, Harnesses},
@@ -39,7 +39,7 @@ fn service(root: &Path) -> Harnesses {
     std::fs::set_permissions(&fixture, std::fs::Permissions::from_mode(0o700)).unwrap();
     let config = config(root, fixture.to_str().unwrap());
     Harnesses::new(
-        nestos_node::harness::config::validate(&config).unwrap(),
+        cells::harness::config::validate(&config).unwrap(),
         "epoch".into(),
     )
     .unwrap()
@@ -301,7 +301,7 @@ async fn codex_queries_expose_runtime_identity_and_reject_stale_command_bindings
 
 #[tokio::test]
 async fn codex_summary_configuration_is_explicit_and_preserves_model_and_speed_defaults() {
-    use nestos_node::harness::config::{CodexConfig, ReasoningSummary};
+    use cells::harness::config::{CodexConfig, ReasoningSummary};
     for (summary, expected) in [(Some(ReasoningSummary::Auto), "auto"), (Some(ReasoningSummary::None), "none"), (None, "unset")] {
         let root = tempfile::tempdir().unwrap();
         let fixture = root.path().join("codex-fixture.py");
@@ -309,7 +309,7 @@ async fn codex_summary_configuration_is_explicit_and_preserves_model_and_speed_d
         std::fs::set_permissions(&fixture, std::fs::Permissions::from_mode(0o700)).unwrap();
         let mut settings = config(root.path(), fixture.to_str().unwrap());
         settings.harnesses[0].codex = summary.map(|reasoning_summary| CodexConfig {reasoning_summary: Some(reasoning_summary)});
-        let service = Harnesses::new(nestos_node::harness::config::validate(&settings).unwrap(), "epoch".into()).unwrap();
+        let service = Harnesses::new(cells::harness::config::validate(&settings).unwrap(), "epoch".into()).unwrap();
         let created = mutate(&service, "harness_create", "create", json!({"workspaceId":"project"})).await;
         assert_eq!(created["outcome"], "committed");
         let result = mutate(&service, "harness_turn", "turn", json!({"sessionId":"session-1",
@@ -495,18 +495,18 @@ async fn rejects_unauthorized_resume_foreign_turn_epoch_and_changed_id_payload()
 fn rejects_profiles_overlapping_exclusive_exports() {
     let root = tempfile::tempdir().unwrap();
     let mut config = config(root.path(), "codex");
-    config.exports.push(nestos_node::config::ExportConfig {
+    config.exports.push(cells::config::ExportConfig {
         path: root.path().to_str().unwrap().into(),
         alias: Some("rw".into()),
-        access: nestos_node::config::Access::Rw,
+        access: cells::config::Access::Rw,
         public: false,
         grants: vec![],
     });
-    assert!(nestos_node::harness::config::validate(&config).is_err());
+    assert!(cells::harness::config::validate(&config).is_err());
     let mut duplicate: ProfileConfig = config.harnesses[0].clone();
     duplicate.id = "codex".into();
     config.harnesses.push(duplicate);
-    assert!(nestos_node::harness::config::validate(&config).is_err());
+    assert!(cells::harness::config::validate(&config).is_err());
 }
 
 fn body(method: &str) -> Value {
@@ -519,7 +519,7 @@ fn body(method: &str) -> Value {
 async fn mcp_auth_version_metadata_origin_and_discovery() {
     let root = tempfile::tempdir().unwrap();
     let state = State::from_config(&config(root.path(), "codex")).unwrap();
-    let app = nestos_node::router(state, &[]).unwrap();
+    let app = cells::router(state, &[]).unwrap();
     let request = |auth: bool, version: &str, origin: Option<&str>| {
         let mut builder = Request::post("/mcp")
             .header("content-type", "application/json")
@@ -569,36 +569,34 @@ async fn mcp_auth_version_metadata_origin_and_discovery() {
     assert_eq!(result["result"]["supportedVersions"][0], "2026-07-28");
     assert_eq!(
         result["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
-        "nestos-node"
+        "cells"
     );
     assert_eq!(
-        result["result"]["_meta"]["itookit/nestos-node"],
-        result["result"]["_meta"]["itookit/pi-agent"]
+        result["result"]["_meta"]["itookit/cells"],
+        result["result"]["_meta"]["itookit/cells"]
     );
-    assert_eq!(result["result"]["_meta"]["itookit/pi-agent"]["version"], 1);
+    assert_eq!(result["result"]["_meta"]["itookit/cells"]["version"], 1);
     assert_eq!(
-        result["result"]["_meta"]["itookit/pi-agent"]["harness"],
+        result["result"]["_meta"]["itookit/cells"]["harness"],
         true
     );
     assert_eq!(
-        result["result"]["_meta"]["itookit/pi-agent"]["fileProtocol"],
+        result["result"]["_meta"]["itookit/cells"]["fileProtocol"],
         "fs-agent-http-v1"
     );
 }
 
 #[tokio::test]
-async fn renamed_capability_tool_and_legacy_aliases_share_the_same_identity() {
+async fn cells_capability_tool_returns_the_node_identity() {
     let root = tempfile::tempdir().unwrap();
-    let app = nestos_node::router(
+    let app = cells::router(
         State::from_config(&config(root.path(), "codex")).unwrap(),
         &[],
     )
     .unwrap();
     let mut descriptors = Vec::new();
     for name in [
-        "nestos_node_capabilities",
-        "piagent_capabilities",
-        "fsagent_capabilities",
+        "cells_capabilities",
     ] {
         let mut request = body("tools/call");
         request["params"]["name"] = json!(name);
@@ -626,19 +624,18 @@ async fn renamed_capability_tool_and_legacy_aliases_share_the_same_identity() {
         assert_eq!(descriptor["fileProtocol"], "fs-agent-http-v1");
         descriptors.push(descriptor);
     }
-    assert_eq!(descriptors[0], descriptors[1]);
-    assert_eq!(descriptors[0], descriptors[2]);
+    assert_eq!(descriptors.len(), 1);
 }
 
 #[tokio::test]
 async fn native_codex_creates_legacy_sessions_and_reads_unmaterialized_history() {
-    if std::env::var("NESTOS_NODE_CODEX_TEST").as_deref() != Ok("1") {
+    if std::env::var("CELLS_CODEX_TEST").as_deref() != Ok("1") {
         return;
     }
     let root = tempfile::tempdir().unwrap();
     let config = config(root.path(), "codex");
     let service = Harnesses::new(
-        nestos_node::harness::config::validate(&config).unwrap(),
+        cells::harness::config::validate(&config).unwrap(),
         "epoch".into(),
     )
     .unwrap();
@@ -1021,7 +1018,7 @@ async fn permanent_deletion_checks_ownership_and_keeps_a_replay_safe_receipt() {
 
 #[tokio::test]
 async fn native_codex_archives_unloaded_history_and_permanently_removes_it() {
-    if std::env::var("NESTOS_NODE_CODEX_TEST").as_deref() != Ok("1") {
+    if std::env::var("CELLS_CODEX_TEST").as_deref() != Ok("1") {
         return;
     }
     let root = tempfile::tempdir().unwrap();
@@ -1034,7 +1031,7 @@ async fn native_codex_archives_unloaded_history_and_permanently_removes_it() {
     std::fs::write(&path, format!("{metadata}\n{message}\n")).unwrap();
     let config = config(root.path(), "codex");
     let service = Harnesses::new(
-        nestos_node::harness::config::validate(&config).unwrap(),
+        cells::harness::config::validate(&config).unwrap(),
         "epoch".into(),
     )
     .unwrap();

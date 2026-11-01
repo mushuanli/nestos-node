@@ -2,7 +2,7 @@ use crate::admin::{AccessCommand as Command, Credential};
 use std::{collections::BTreeMap, path::PathBuf};
 
 pub(super) const HELP: &str = "Directory policy administration (local configuration only):
-  nestos-node access [--config CONFIG] [--dry-run] <command>
+  cells access [--config CONFIG] [--dry-run] <command>
   init                                    Migrate legacy credentials to principal owner
   list                                    Show identities and effective directory permissions
   validate                                Validate configured auth and directory policy

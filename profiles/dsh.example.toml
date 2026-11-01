@@ -1,4 +1,4 @@
-# Append this profile to an existing multi-principal nestos-node configuration.
+# Append this profile to an existing multi-principal cells configuration.
 # Replace command/home with installed paths. Reuse the original DSH_HOME to
 # discover existing sessions; an empty home has no historical conversations.
 # The principal must already exist and have execute grants for the project.

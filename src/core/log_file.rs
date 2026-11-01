@@ -46,7 +46,7 @@ impl FileLog {
             .mode(0o700)
             .create(&directory)?;
         let name = format!(
-            "nestos-node-{}-{}.jsonl",
+            "cells-{}-{}.jsonl",
             chrono::Local::now().format("%Y%m%dT%H%M%S%.9f"),
             std::process::id()
         );

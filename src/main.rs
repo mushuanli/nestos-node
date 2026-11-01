@@ -12,8 +12,8 @@
 //! closes. The order matters — the file gate is drained before the process is
 //! allowed to exit.
 
-use nestos_node::core::events::emit;
-use nestos_node::{app::Application, config::launch};
+use cells::core::events::emit;
+use cells::{app::Application, config::launch};
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
 
@@ -28,7 +28,7 @@ async fn main() -> std::process::ExitCode {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             emit(
-                nestos_node::core::events::Level::Error,
+                cells::core::events::Level::Error,
                 if std::env::args()
                     .nth(1)
                     .is_some_and(|arg| arg == "access" || arg == "sync" || arg == "plugins")
@@ -50,36 +50,36 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .first()
         .is_some_and(|arg| arg == "--version" || arg == "-V")
     {
-        println!("nestos-node {}", env!("CARGO_PKG_VERSION"));
+        println!("cells {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
     if args
         .first()
         .is_some_and(|arg| arg == "--help" || arg == "-h")
     {
-        println!("{}", nestos_node::cli::HELP);
+        println!("{}", cells::cli::HELP);
         return Ok(());
     }
-    eprintln!("nestos-node {}", env!("CARGO_PKG_VERSION"));
+    eprintln!("cells {}", env!("CARGO_PKG_VERSION"));
     if args.first().is_some_and(|arg| arg == "plugins") {
-        return nestos_node::cli::plugins(&args[1..]).map_err(Into::into);
+        return cells::cli::plugins(&args[1..]).map_err(Into::into);
     }
     if args.first().is_some_and(|arg| arg == "access") {
-        return nestos_node::cli::access(&args[1..]).map_err(Into::into);
+        return cells::cli::access(&args[1..]).map_err(Into::into);
     }
     if args.first().is_some_and(|s| s == "sync") {
-        return nestos_node::sync::admin(&args[1..]).map_err(Into::into);
+        return cells::sync::admin(&args[1..]).map_err(Into::into);
     }
     if args.len() > 1 || args.first().is_some_and(|arg| arg.starts_with('-')) {
-        return Err("Invalid server arguments; use nestos-node --help".into());
+        return Err("Invalid server arguments; use cells --help".into());
     }
     let path = launch::resolve(args.first().map(String::as_str))?;
     let config = launch::load(&path)?;
-    nestos_node::core::events::set_level(config.log_level);
-    let log_file = nestos_node::core::events::init_file(&config.logging, &path)?;
+    cells::core::events::set_level(config.log_level);
+    let log_file = cells::core::events::init_file(&config.logging, &path)?;
     eprintln!("  Log file: {}", log_file.display());
     emit(
-        nestos_node::core::events::Level::Info,
+        cells::core::events::Level::Info,
         "server.starting",
         json!({"version": env!("CARGO_PKG_VERSION"), "config": path, "logFile": log_file}),
     );
@@ -89,16 +89,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     application.start().await?;
     let state = application.state();
     emit(
-        nestos_node::core::events::Level::Info,
+        cells::core::events::Level::Info,
         "server.ready",
         json!({"address": listener.local_addr()?.to_string(), "serverId": state.auth.server_id(),
         "version": env!("CARGO_PKG_VERSION"), "logFile": log_file,
         "principals":state.auth.clients().iter().map(|c| c.authorization()).collect::<Vec<_>>(),
         "execution": state.plugins.enabled("process"), "plugins":state.plugins.statuses(), "exportCount": config.exports.len(), "exports": startup::export_access(state)}),
     );
-    if nestos_node::core::events::enabled(nestos_node::core::events::Level::Info) {
+    if cells::core::events::enabled(cells::core::events::Level::Info) {
         eprintln!(
-            "nestos-node listening on {} (config {})",
+            "cells listening on {} (config {})",
             listener.local_addr()?,
             path.display()
         );
@@ -119,13 +119,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 async fn shutdown(application: Arc<Application>) {
     let signal = shutdown_signal().await.unwrap_or("signal-error");
     emit(
-        nestos_node::core::events::Level::Info,
+        cells::core::events::Level::Info,
         "server.stopping",
         json!({"signal":signal}),
     );
     if application.shutdown().await.is_err() {
         emit(
-            nestos_node::core::events::Level::Error,
+            cells::core::events::Level::Error,
             "server.plugin_shutdown_failed",
             json!({"code":"PLUGIN_SHUTDOWN_FAILED"}),
         );
@@ -134,7 +134,7 @@ async fn shutdown(application: Arc<Application>) {
     tokio::spawn(async move {
         tokio::time::sleep(CONNECTION_GRACE).await;
         emit(
-            nestos_node::core::events::Level::Info,
+            cells::core::events::Level::Info,
             "server.connection_grace_elapsed",
             json!({}),
         );

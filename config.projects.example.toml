@@ -1,10 +1,10 @@
 listen = "127.0.0.1:8787"
 server_id = "office-node"
 execution = true
-api_key_env = "NESTOS_NODE_API_KEY"
+api_key_env = "CELLS_API_KEY"
 
 [projects]
-root = "/var/lib/nestos-node/projects"
+root = "/var/lib/cells/projects"
 network = false
 
 # Each export root owns one .nestos/meta.sqlite, created only by the first metadata write.
@@ -26,10 +26,10 @@ access = "ro"
 id = "codex"
 kind = "codex"
 command = "/opt/codex/codex"
-home = "/var/lib/nestos-node/codex"
+home = "/var/lib/cells/codex"
 projects = true
 
 # Enable to materialize uploaded files datasets into writable project directories.
 [sync]
 enabled = true
-root = "/var/lib/nestos-node/sync"
+root = "/var/lib/cells/sync"

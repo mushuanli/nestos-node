@@ -35,7 +35,7 @@ for line in sys.stdin:
     elif method == 'mcpServerStatus/list':
         result = {'data':[{'name':'fixture','authStatus':'OAuth','tools':{}}],'nextCursor':None}
     elif method == 'thread/start':
-        if params.get('sandbox') != ('danger-full-access' if os.environ.get('PI_AGENT_PROJECT') else 'workspace-write'):
+        if params.get('sandbox') != ('danger-full-access' if os.environ.get('CELLS_PROJECT') else 'workspace-write'):
             emit({'id': request['id'], 'error': {'code': -32602, 'message': 'sandbox'}})
             continue
         thread_id = 'session-' + str(len(threads) + 1)

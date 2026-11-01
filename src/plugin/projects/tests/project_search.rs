@@ -1,4 +1,4 @@
-use nestos_node::{app::State, config::Config, projects::call};
+use cells::{app::State, config::Config, projects::call};
 use serde_json::{json, Value};
 use std::{os::unix::fs::symlink, sync::Arc};
 
@@ -46,12 +46,12 @@ projects=true
     let state = State::from_config(&config).unwrap();
     state
         .services
-        .require::<nestos_node::process::Execution>()
+        .require::<cells::process::Execution>()
         .unwrap()
         .retain_lock(std::fs::File::open(root.path()).unwrap());
     state
         .services
-        .require::<nestos_node::process::Execution>()
+        .require::<cells::process::Execution>()
         .unwrap()
         .accept();
     let project = call(
@@ -71,7 +71,7 @@ async fn search(
     project: &Value,
     query: &str,
     mode: &str,
-) -> Result<Value, nestos_node::core::error::Error> {
+) -> Result<Value, cells::core::error::Error> {
     call(
         state,
         0,
@@ -86,7 +86,7 @@ async fn scoped_search(
     query: &str,
     mode: &str,
     directory: &str,
-) -> Result<Value, nestos_node::core::error::Error> {
+) -> Result<Value, cells::core::error::Error> {
     call(
         state,
         0,

@@ -1,4 +1,4 @@
-use nestos_node::{app::State, config::Config, projects::call};
+use cells::{app::State, config::Config, projects::call};
 use serde_json::{json, Value};
 use std::{os::unix::fs::symlink, sync::Arc};
 fn fixture() -> (tempfile::TempDir, Arc<State>) {
@@ -69,7 +69,7 @@ async fn subscription_waits_for_kernel_changes_and_releases_its_watch() {
         );
     }
 }
-async fn next(source: &mut nestos_node::plugins::EventStream) -> Value {
+async fn next(source: &mut cells::plugins::EventStream) -> Value {
     use futures_util::StreamExt;
     tokio::time::timeout(std::time::Duration::from_secs(2), source.next())
         .await

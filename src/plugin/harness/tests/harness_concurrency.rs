@@ -1,6 +1,6 @@
 #[path = "support/events.rs"]
 mod event_support;
-use nestos_node::{app::State, config::Config, projects::call};
+use cells::{app::State, config::Config, projects::call};
 use serde_json::{json, Value};
 use std::{os::unix::fs::PermissionsExt, sync::Arc};
 
@@ -16,7 +16,7 @@ async fn fixture() -> (tempfile::TempDir, Arc<State>, Value) {
         "listen='127.0.0.1:0'\nexecution=true\nserver_id='parallel-test'\ntoken='isolated-concurrency-secret-0123456789'\n[projects]\nroot={:?}\n[[exports]]\nalias='work'\npath={:?}\naccess='rw'\n[[harnesses]]\nid='codex'\nkind='codex'\ncommand={:?}\nhome={:?}\nprojects=true\n",
         root.path().join("catalog"), root.path().join("work"), peer, root.path().join("home"))).unwrap();
     let state = State::from_config(&config).unwrap();
-    nestos_node::process::enable(&state).await.unwrap();
+    cells::process::enable(&state).await.unwrap();
     let project = call(
         &state,
         0,
@@ -26,7 +26,7 @@ async fn fixture() -> (tempfile::TempDir, Arc<State>, Value) {
     .await
     .unwrap()["project"]
         .clone();
-    let base = json!({"projectId":project["id"], "revision":project["revision"], "profileId":"codex", "epoch":state.services.require::<nestos_node::harness::Harnesses>().unwrap().profiles()["epoch"]});
+    let base = json!({"projectId":project["id"], "revision":project["revision"], "profileId":"codex", "epoch":state.services.require::<cells::harness::Harnesses>().unwrap().profiles()["epoch"]});
     (root, state, base)
 }
 async fn invoke(state: &Arc<State>, base: &Value, name: &str, id: &str, extra: Value) -> Value {
@@ -37,7 +37,7 @@ async fn invoke(state: &Arc<State>, base: &Value, name: &str, id: &str, extra: V
     }
     state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .project_call(state, 0, name, args)
         .await
@@ -116,7 +116,7 @@ async fn project_receipts_survive_noop_remount_and_revision_changes() {
     assert_eq!(
         state
             .services
-            .require::<nestos_node::harness::Harnesses>()
+            .require::<cells::harness::Harnesses>()
             .unwrap()
             .profiles()["epoch"],
         base["epoch"]
@@ -134,7 +134,7 @@ async fn project_receipts_survive_noop_remount_and_revision_changes() {
     );
     state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .close()
         .await;
@@ -165,7 +165,7 @@ async fn failed_configuration_preserves_receipts_and_never_repeats_a_native_crea
     );
     state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .close()
         .await;
@@ -249,7 +249,7 @@ async fn project_turns_overlap_keep_independent_receipts_and_protect_files_until
     assert!(state.files.exclusive().is_ok());
     state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .close()
         .await;
@@ -276,7 +276,7 @@ async fn another_session_starts_while_the_first_is_waiting_for_approval_before_i
             let events = event_support::scoped(
                 state
                     .services
-                    .require::<nestos_node::harness::Harnesses>()
+                    .require::<cells::harness::Harnesses>()
                     .unwrap(),
                 &state,
                 0,
@@ -336,7 +336,7 @@ async fn another_session_starts_while_the_first_is_waiting_for_approval_before_i
     assert!(state.files.shared().is_ok());
     state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .close()
         .await;
@@ -368,7 +368,7 @@ async fn a_terminal_event_before_the_start_reply_releases_the_correct_turn() {
     assert!(state.files.shared().is_err());
     state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .close()
         .await;
@@ -395,7 +395,7 @@ async fn thirty_two_sessions_submit_while_another_waits_for_approval() {
             let page = event_support::scoped(
                 state
                     .services
-                    .require::<nestos_node::harness::Harnesses>()
+                    .require::<cells::harness::Harnesses>()
                     .unwrap(),
                 &state,
                 0,
@@ -467,7 +467,7 @@ async fn thirty_two_sessions_submit_while_another_waits_for_approval() {
     assert!(state.files.shared().is_ok());
     state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .close()
         .await;

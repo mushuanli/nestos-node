@@ -1,4 +1,4 @@
-use nestos_node::fs::{
+use cells::fs::{
     seq::{self, Change, Update},
     Export,
 };
@@ -117,7 +117,7 @@ fn cancelled_or_invalid_batch_keeps_the_original_database() {
             expected_revision: snapshot.revision,
             changes: vec![]
         },
-        || Err(nestos_node::core::error::Error::cancelled())
+        || Err(cells::core::error::Error::cancelled())
     )
     .is_err());
     assert_eq!(std::fs::read(root.path().join("info.seq")).unwrap(), bytes);

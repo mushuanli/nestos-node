@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 pub(super) fn uri(state: &State) -> String {
     format!(
-        "nestos-node://{}/directories",
+        "cells://{}/directories",
         state.auth.server_id().unwrap_or("")
     )
 }
@@ -23,7 +23,7 @@ pub(super) async fn read(
     requested: &str,
     deadline: tokio::time::Instant,
 ) -> Result<Value, Error> {
-    if requested != uri(state) && requested != uri(state).replacen("nestos-node://", "mindos-node://", 1) {
+    if requested != uri(state) {
         return Err(Error::not_found("RESOURCE_UNKNOWN"));
     }
     let guard = state.files.shared()?;

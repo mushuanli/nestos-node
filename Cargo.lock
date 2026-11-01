@@ -836,7 +836,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nestos-node"
+name = "cells"
 version = "0.4.3"
 dependencies = [
  "axum",

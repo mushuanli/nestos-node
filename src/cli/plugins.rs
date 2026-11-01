@@ -2,11 +2,11 @@ use crate::{config::launch, plugins::PluginRegistry};
 
 pub(super) fn run(args: &[String]) -> Result<(), String> {
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
-        println!("nestos-node plugins check CONFIG [PLUGIN]\nValidate all configured plugins, or one plugin and its dependencies, without starting services or writing stores.");
+        println!("cells plugins check CONFIG [PLUGIN]\nValidate all configured plugins, or one plugin and its dependencies, without starting services or writing stores.");
         return Ok(());
     }
     if !(args.len() == 2 || args.len() == 3) || args[0] != "check" {
-        return Err("Use nestos-node plugins check CONFIG [PLUGIN]".into());
+        return Err("Use cells plugins check CONFIG [PLUGIN]".into());
     }
     let config = launch::load(std::path::Path::new(&args[1])).map_err(|error| error.to_string())?;
     let registry = PluginRegistry::builtins();

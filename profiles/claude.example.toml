@@ -1,4 +1,4 @@
-# Append to an existing multi-principal nestos-node configuration.
+# Append to an existing multi-principal cells configuration.
 # Replace installed paths and bind an existing principal. Reuse the original
 # CLAUDE_CONFIG_DIR to discover native Claude Code session history.
 [[harnesses]]

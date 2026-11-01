@@ -1,20 +1,22 @@
-# nestos-node — NestOS 的个人智能节点
+# cells — NestOS 的单个智能节点
 
-nestos-node 将设备上的文件、项目和执行环境接入 NestOS，统一提供同步、受控访问及 AI harness 会话管理。NestOS 组织知识、对话和工作流，nestos-node 连接设备上的数据与执行能力。
+cells 寓意蜂房中的单个巢室：将信息与 Agent 集成到 NestOS 的单个智能节点。每个 cells 节点连接设备上的文件、项目与执行环境，提供同步、受控访问和 AI harness 会话管理；多个节点共同构成 NestOS 的知识与智能协作网络。
 
-服务源码：[nestos-node](https://github.com/mushuanli/nestos-node)；统一客户端：[nestos-node-driver](https://github.com/mushuanli/nestos-node-driver)，npm 包为 `@itookit/nestos-node-driver`。
+服务源码：[cells](https://github.com/mushuanli/cells)；统一客户端：[cells-driver](https://github.com/mushuanli/cells-driver)，npm 包为 `@itookit/cells-driver`。
 
 服务端目前支持 Linux（需要 `openat2`）；Web、Tauri 和 Node CLI 使用同一 HTTP 协议。服务启动时验证目录句柄能力，不支持时拒绝启动。
 
-节点功能已接入统一插件框架，可通过 `[plugins]` 分别开关文件接口、命令执行、同步、项目、Harness 和 MCP。未配置新开关时沿用原有行为。接口、装配顺序和独立验证见 [节点插件](doc/plugins.md)，配置见 [插件示例](config.plugins.example.toml)；可执行 `nestos-node plugins check CONFIG [PLUGIN]` 校验全部或单个插件而不启动服务。
+包名与可执行命令均为 `cells`，统一客户端为 `@itookit/cells-driver`；环境变量使用 `CELLS_*`，MCP 能力工具为 `cells_capabilities`，发现元数据键为 `itookit/cells`，资源 URI 使用 `cells://`。
+
+节点功能已接入统一插件框架，可通过 `[plugins]` 分别开关文件接口、命令执行、同步、项目、Harness 和 MCP。未配置新开关时沿用原有行为。接口、装配顺序和独立验证见 [节点插件](doc/plugins.md)，配置见 [插件示例](config.plugins.example.toml)；可执行 `cells plugins check CONFIG [PLUGIN]` 校验全部或单个插件而不启动服务。
 
 ```bash
-# 在本项目根目录执行（itookit monorepo 内即 tools/nestos-node，作为 submodule）
+# 在本项目根目录执行（itookit monorepo 内即 tools/cells，作为 submodule）
 cargo build --release
 # 复制 config.example.toml，设置实际目录、监听地址和允许的 Web/Tauri Origin。
-export NESTOS_NODE_API_KEY='替换为至少24字节的API-Key'
-target/release/nestos-node                     # 自动读取 config.toml
-target/release/nestos-node /path/to/config.toml # 也可显式指定
+export CELLS_API_KEY='替换为至少24字节的API-Key'
+target/release/cells                     # 自动读取 config.toml
+target/release/cells /path/to/config.toml # 也可显式指定
 ```
 
 文件模式配置一组认证凭据和一串导出目录；可额外启用外部 harness 控制：
@@ -23,7 +25,7 @@ target/release/nestos-node /path/to/config.toml # 也可显式指定
 listen = "127.0.0.1:8787"
 allowed_origins = ["http://localhost:3000", "http://localhost:1420"]
 
-api_key_env = "NESTOS_NODE_API_KEY"      # 也可内联 api_key = "至少24字节"
+api_key_env = "CELLS_API_KEY"      # 也可内联 api_key = "至少24字节"
 
 [[exports]]
 path = "/n/prj/x1"                   # 别名默认取目录名：x1
@@ -69,7 +71,7 @@ metadata 修改不会改变正文 revision，也不会使原本合法的正文�
 
 `exclusive` 要求所有修改经本服务完成；目录上的 advisory lock 阻止合作的同根实例，不能阻止编辑器、Git 或其他外部程序。配置内拒绝重叠根与重复别名；不同实例的父子导出根仍需部署侧禁止。共享修改目录使用 `ro`。服务支持 HTTP；公网部署在 TLS 反向代理之后。Origin 白名单只解决浏览器访问，不代替身份认证。用户名/密码使用 UTF-8 HTTP Basic，密码至少 8 字节：用户名取 `username`，未写时读环境变量 `FS_SERVER_USER`；密码取内联 `password` 或 `password_env` 指向的环境变量。Basic 凭据不加密，非可信本机网络应使用 HTTPS。推荐 `api_key` 或 `api_key_env`（至少 24 字节、不设置 `username`），使用 Bearer 认证；旧名称 `token`/`token_env` 仍兼容，但不能和对应新名称同时配置。API Key 与密码认证互斥；同时设置 `username` 与 `token`/`token_env` 会启动失败，避免看起来是 Basic 实际只收 Bearer。内联 secret 写在服务端配置文件中。API Key 按启动连接提示输出到 console，不放入结构化事件或 HTTP 响应；旧 Basic 密码不输出。
 
-在“工具箱 → MCP”新增 HTTP 配置，填写完整 MCP 地址（例如 `http://127.0.0.1:8787/mcp`），将服务启动时输出的 API Key 填入同名字段并测试连接。通用发现响应已携带 nestos-node 能力描述；应用扩展验证后启用项目绑定，不需要额外用户名、密码或勾选框。旧服务器使用其已声明的能力工具。测试后的保存和改名复用验证结果，普通 MCP 不发 nestos-node 专用探测。只有验证成功的 nestos-node 配置可以用于目录绑定，普通 MCP 即使同名也不能绑定。可配置多条连接；工作台新建远程项目选择 MCP 配置和 `/alias/path`。项目展示“服务器名:项目名”，同一服务器、账号与规范化路径复用已有项目，改名不移动目录。
+在“工具箱 → MCP”新增 HTTP 配置，填写完整 MCP 地址（例如 `http://127.0.0.1:8787/mcp`），将服务启动时输出的 API Key 填入同名字段并测试连接。通用发现响应已携带 cells 能力描述；应用扩展验证后启用项目绑定，不需要额外用户名、密码或勾选框。旧服务器使用其已声明的能力工具。测试后的保存和改名复用验证结果，普通 MCP 不发 cells 专用探测。只有验证成功的 cells 配置可以用于目录绑定，普通 MCP 即使同名也不能绑定。可配置多条连接；工作台新建远程项目选择 MCP 配置和 `/alias/path`。项目展示“服务器名:项目名”，同一服务器、账号与规范化路径复用已有项目，改名不移动目录。
 
 连接配置、API Key 和项目引用通过现有 MCP 配置持久保存；应用重启时从已验证的 MCP 配置恢复驱动凭据，无需重新输入。旧 Basic 配置的密码仍只保存在宿主运行期。CLI 持久配置引用由 `NESTOS_REMOTE_<credentialRef中横线替换为下划线>` 环境变量解析。直接 `nestos fs` 使用 `FS_SERVER_USER` + `FS_SERVER_PASSWORD`；未设置用户名时兼容 `FS_SERVER_TOKEN`。
 
@@ -99,14 +101,14 @@ API：`GET /v1/exports`、`POST /v1/fs/:alias/stat`（`{paths}`）、`GET entrie
 
 ```bash
 cargo test                                  # 本项目根目录
-pnpm --filter @itookit/nestos-node-driver test  # 在 itookit monorepo 内
+pnpm --filter @itookit/cells-driver test  # 在 itookit monorepo 内
 ```
 
 驱动测试在 Linux 启动真实 Rust 服务，验证协议、条件保存和 VFS 适配；其他平台跳过该服务端集成测试。设计和验收边界见 [设计文档](../../doc/design/vfs-http-driver.md)。
 
 包含远程来源的项目显示独立远程图标。服务断线时，仅关联项目的文件操作和新会话置灰禁用，已有会话仍可查看，其他项目继续可用；Settings 的重连入口保持可用。恢复连接后解除禁用。
 
-## nestos-node 增量接口
+## cells 增量接口
 
 `GET /v1/capabilities` 需要认证，返回安装身份及文件/同步/进程/终端支持情况。可在配置顶层指定稳定的 `server_id = "my-agent-node"`；未配置时为启用执行的服务生成本次启动的随机节点标识（不保证跨重启不变）。命令执行默认开启，配置顶层 `execution = false` 可切换为纯文件服务。启用执行时，启动会验证 Linux bubblewrap、fd 挂载及 user namespace 支持，失败即退出。`sync.push` 在同步服务开启且健康时为 true，详细能力通过 `/v1/sync/capabilities` 查询；`terminal.pty` 仍为 false；普通命令不依赖工作区租约模块。
 
@@ -123,11 +125,11 @@ NestOS 项目右键菜单选择“启用远程命令”后，File Tools 和 Bash
 
 命令持有文件/进程互斥门，运行期间所有文件 API 返回 EBUSY；下载流、上传与后台提交保留其门直到结束。命令退出/取消并回收后使所有旧 revision 失效，避免 Bash 改动绕过条件写入。exclusive export 不允许其他宿主进程并发写入。执行锁在 monitor 中保留，daemon 意外退出后锁随进程清理释放。
 
-验收：`NESTOS_NODE_PROCESS_TEST=1 cargo test`（要求可创建 Linux user/PID/network namespace）。
+验收：`CELLS_PROCESS_TEST=1 cargo test`（要求可创建 Linux user/PID/network namespace）。
 
 ## 项目多端同步
 
-同步存储、配置、管理员备份恢复与 HTTP 协议见 [单节点同步存储](doc/sync.md)。纯同步实例可使用 [config.sync.example.toml](config.sync.example.toml)，无需配置 export；sync.root 不存在或为空时首次启动自动初始化，也可先用 `nestos-node sync init CONFIG` 显式初始化。同步库与 export 使用独立目录，不自动发布工作目录的变化。
+同步存储、配置、管理员备份恢复与 HTTP 协议见 [单节点同步存储](doc/sync.md)。纯同步实例可使用 [config.sync.example.toml](config.sync.example.toml)，无需配置 export；sync.root 不存在或为空时首次启动自动初始化，也可先用 `cells sync init CONFIG` 显式初始化。同步库与 export 使用独立目录，不自动发布工作目录的变化。
 
 ## 代码结构
 
@@ -156,9 +158,9 @@ NestOS 项目右键菜单选择“启用远程命令”后，File Tools 和 Bash
 
 ## 日志
 
-启动首先在终端打印 `nestos-node <版本号>`，配置或初始化失败时也能看到运行版本。`--version` / `-V` 只打印版本并退出，不读取配置或启动服务。日志初始化后先记录 `server.starting`（version、config、logFile），就绪时 `server.ready` 继续记录相同版本，启动失败事件也带版本。正常启动事件遵循 `log_level`（info 及以上详细级别可见）。
+启动首先在终端打印 `cells <版本号>`，配置或初始化失败时也能看到运行版本。`--version` / `-V` 只打印版本并退出，不读取配置或启动服务。日志初始化后先记录 `server.starting`（version、config、logFile），就绪时 `server.ready` 继续记录相同版本，启动失败事件也带版本。正常启动事件遵循 `log_level`（info 及以上详细级别可见）。
 
-顶层 `log_level = "info"` 为默认值，可设 `trace/debug/info/warn/error/off`。服务事件同时输出到 stderr 和配置文件所在目录下的 `logs/nestos-node-<启动时间>-<PID>.jsonl`；启动终端打印绝对日志路径，`server.ready` 也记录版本和路径。以 `tools/config.toml` 启动时，默认目录为 `tools/logs/`。启动提示和 API Key 等终端文本不复制到文件，文件只接收结构化事件。
+顶层 `log_level = "info"` 为默认值，可设 `trace/debug/info/warn/error/off`。服务事件同时输出到 stderr 和配置文件所在目录下的 `logs/cells-<启动时间>-<PID>.jsonl`；启动终端打印绝对日志路径，`server.ready` 也记录版本和路径。以 `tools/config.toml` 启动时，默认目录为 `tools/logs/`。启动提示和 API Key 等终端文本不复制到文件，文件只接收结构化事件。
 
 默认单文件 10 MiB，按完整记录轮转为 `.jsonl.1` 至 `.jsonl.4`，每次启动最多保留 5 份（包含当前文件）；旧启动的日志保留供排查，不自动删除。单条记录不截断，可能独自超过大小阈值。日志文件权限为 `0600`，新建目录为 `0700`。事件直接写入文件，不逐条 `fsync`；日志初始化失败时启动报错，运行中写入失败则提示终端并继续 stderr 日志，不中断任务。
 
@@ -211,7 +213,7 @@ retained_files = 5
 
 `kind = "dsh"` 适配 DSH 0.2.0-rc.2 的 `web` profile，协议依据 `deepseek-harness/tui/src/transport/` 及宿主 Session Controller。示例见 [config.dsh.example.toml](config.dsh.example.toml)。无需安装 dsht；Rust 驱动直接交换登录 cookie、调用 HTTP Remote 方法并读取 WebSocket mux，不解析 TUI 屏幕。
 
-已有多身份服务可将 [profiles/dsh.example.toml](profiles/dsh.example.toml) 追加到现有配置，替换实际 command/home，并绑定已有 `principal_id`。`home` 应指向原来的 DSH_HOME；新建空目录不会带入历史会话。0.3.3 的项目列表通过 ProjectRuntime 校验原生 workspace 的物理路径，兼容既有物理目录与 `/projects/<id>` 虚拟路径，并继续拒绝项目之外的会话。配置及二进制更新后重启 nestos-node，再在客户端刷新 MCP 能力；不需要复制历史或重建项目。
+已有多身份服务可将 [profiles/dsh.example.toml](profiles/dsh.example.toml) 追加到现有配置，替换实际 command/home，并绑定已有 `principal_id`。`home` 应指向原来的 DSH_HOME；新建空目录不会带入历史会话。0.3.3 的项目列表通过 ProjectRuntime 校验原生 workspace 的物理路径，兼容既有物理目录与 `/projects/<id>` 虚拟路径，并继续拒绝项目之外的会话。配置及二进制更新后重启 cells，再在客户端刷新 MCP 能力；不需要复制历史或重建项目。
 
 默认 profile ID 使用 `codex`、`dsh` 等类型名；Codex 追加式模板见 [profiles/codex.example.toml](profiles/codex.example.toml)。改名可配置 `aliases = ["codex-main"]` 保留旧引用，发现列表仅返回新 ID 及 aliases 元数据。服务先将别名解析为规范 ID，再校验主体权限、选择项目实例及处理回执；旧名称和新名称共享同一实例，不创建重复会话或额外控制进程。别名必须是有效且全局唯一的 profile 标识，不能覆盖其他 profile 或别名。
 
@@ -223,7 +225,7 @@ retained_files = 5
 
 0.3.5 的历史投影使用持久事件中的原生 turn 编号，不再将不同轮次合并；分页从轮次中间开始也保持相同身份。实时流仍沿用当前提交的 requestId。DSH 会话额外返回可选 archiveAllowed，允许客户端显示空闲但未附着会话的归档操作；不以 owned 推测原生管理权限，归档提交仍再次核验原生运行状态与目录授权。
 
-默认托管模式显式配置 `command` 和已存在的私有 `home`（DSH_HOME），由 nestos-node 延迟启动 `dsh --patch <临时传输配置> --profile web --no-open --host 127.0.0.1 --port 0`，读取 readiness URL 后在内存交换 cookie。临时 overlay 在私有 home 内使用 0600 权限，固定回环地址、随机端口、readiness 输出及禁止打开浏览器，避免用户 profile 的固定绑定覆盖启动参数；进程回收后删除 overlay。请先在该 home 完成 DSH profile 初始化、模型与凭据配置；启动超时默认 120 秒。项目模式 `projects = true` 使用共同 ProjectRuntime/launcher、目录 grants 与文件活动租约；`[projects].network = true` 允许本机控制连接和模型网络。DSH 应安装在沙箱可访问的系统目录；源码开发启动器可能引用沙箱外路径，不能直接当作可部署命令。
+默认托管模式显式配置 `command` 和已存在的私有 `home`（DSH_HOME），由 cells 延迟启动 `dsh --patch <临时传输配置> --profile web --no-open --host 127.0.0.1 --port 0`，读取 readiness URL 后在内存交换 cookie。临时 overlay 在私有 home 内使用 0600 权限，固定回环地址、随机端口、readiness 输出及禁止打开浏览器，避免用户 profile 的固定绑定覆盖启动参数；进程回收后删除 overlay。请先在该 home 完成 DSH profile 初始化、模型与凭据配置；启动超时默认 120 秒。项目模式 `projects = true` 使用共同 ProjectRuntime/launcher、目录 grants 与文件活动租约；`[projects].network = true` 允许本机控制连接和模型网络。DSH 应安装在沙箱可访问的系统目录；源码开发启动器可能引用沙箱外路径，不能直接当作可部署命令。
 
 已有服务模式设置 `[harnesses.dsh].url`（仅 HTTP(S) origin）及 `token_env`，令牌只在服务端环境解析。该模式必须使用显式 legacy workspaces、`projects = false`，且不能用于多身份项目运行时；已有 DSH 的工具权限由它自己的配置决定。不会结束已有服务进程。DSH 服务需允许该 URL 的 Host；HTTP(S) 与 WS(S) 均使用同一 origin 和 cookie。
 
@@ -237,7 +239,7 @@ retained_files = 5
 
 回收后目录返回 `owned=false`，新一轮需要恢复同一个 sessionId。客户端的队列派发准备会先 inspect，再按需 resume；读取历史不会自动恢复所有权。命令结果未知时返回 `DSH_COMMAND_RESULT_PENDING` 拒绝新的写入，状态查询仍可用；不能因界面已显示 idle 就清掉未知操作。容量日志包含操作身份、阶段、耗时、活动轮次/未确认命令/待交互数量，不记录输入或原生错误正文。DSH 的实时 requestId 与原生历史 turn 编号的完整持久映射仍需补齐，本次回收不提供跨事件缺口的完整恢复保证。
 
-暂不声明 fork、永久删除、取消归档、附件或用量计价能力；这些操作由能力描述隐藏。断线后该驱动实例拒绝继续写入，重启 nestos-node 后可显式继续原生持久会话；不会自动重放未知操作。托管实例退出时回收其进程组，活动结果不明时按共同文件门闩机制拒绝继续访问。日志复用 nestos-node JSONL，记录生命周期与安全的 DSH 错误代码，不输出 URL 令牌、cookie、prompt 或原生错误正文。
+暂不声明 fork、永久删除、取消归档、附件或用量计价能力；这些操作由能力描述隐藏。断线后该驱动实例拒绝继续写入，重启 cells 后可显式继续原生持久会话；不会自动重放未知操作。托管实例退出时回收其进程组，活动结果不明时按共同文件门闩机制拒绝继续访问。日志复用 cells JSONL，记录生命周期与安全的 DSH 错误代码，不输出 URL 令牌、cookie、prompt 或原生错误正文。
 
 命令目录与模型目录的读取失败不代表原生执行结果未知。Harness 服务在调用执行端口前保留明确的未派发依据；DSH 的新 `HarnessDriver.execute_checked` 还区分适配器内部预检与实际修改请求。能够证明未派发时，沿原回执保存 `outcome=not-committed`、原安全错误码、`stage=prepare` 和 `executionStarted=false`；队列保留失败条目，显式重试才分配新 attemptId。旧插件的默认实现保守视为已派发，不根据错误码推测未发送。模型目录读取在取得 prompt 占用之前完成；`selectModel` 或 `commands/execute` 一旦可能已发出，EIO/超时仍保持 unknown 和原占用，不能以“没有 prompt”推断修改未发生。回执持久化失败仍返回 unknown，不能用未派发内存事实绕过原回执核对。
 
@@ -269,21 +271,21 @@ DSH 0.2.0-rc.2 的 `command/run.source` 只有 `kind=user`，原生 `commandId` 
 
 启动时（日志级别 info 或更详细）输出可复制的 MCP endpoint、serverId、认证方式、凭据来源及实际 API Key；旧 Basic 配置只显示用户名和密码来源。监听通配地址时另外尝试显示默认路由的本机 IP 候选；多网卡、容器、NAT 或代理场景仍需填写客户端实际可达地址。该探测不发送 UDP 数据包，也不发现公网地址。
 
-认证使用每请求的 HTTP Basic 或 Bearer，没有 cookie 登录会话和自动到期时间；配置凭据不变时，服务重启后仍有效。itookit 的 nestos-node 项目绑定支持标准 MCP API Key（Bearer）和旧 Basic 配置；API Key 使用 MCP 既有存储，驱动运行时只保留内存副本。API Key 不写入项目挂载记录，MCP 导出仍移除 API Key。
+认证使用每请求的 HTTP Basic 或 Bearer，没有 cookie 登录会话和自动到期时间；配置凭据不变时，服务重启后仍有效。itookit 的 cells 项目绑定支持标准 MCP API Key（Bearer）和旧 Basic 配置；API Key 使用 MCP 既有存储，驱动运行时只保留内存副本。API Key 不写入项目挂载记录，MCP 导出仍移除 API Key。
 
-使用 [config.harness.example.toml](config.harness.example.toml) 配置。`harnesses` 缺省为空，不启动或访问 Codex；每个 profile 显式设置已存在的绝对 CODEX_HOME 和授权 workspace。运行 nestos-node 的系统用户需已有 Codex 登录状态及已安装的 CLI。要浏览当前用户 ~/.codex 的会话，填写该目录的实际绝对路径；TOML 不展开 `~`。不读取未配置的其他 home，不把 auth.json 等密钥文件作为会话返回。
+使用 [config.harness.example.toml](config.harness.example.toml) 配置。`harnesses` 缺省为空，不启动或访问 Codex；每个 profile 显式设置已存在的绝对 CODEX_HOME 和授权 workspace。运行 cells 的系统用户需已有 Codex 登录状态及已安装的 CLI。要浏览当前用户 ~/.codex 的会话，填写该目录的实际绝对路径；TOML 不展开 `~`。不读取未配置的其他 home，不把 auth.json 等密钥文件作为会话返回。
 
 `execution = false` 关闭原有 shell 服务，但仍可启用 harness；无需 exports 即可仅运行控制中心。workspace 必须与 exclusive rw exports 分离（启动时拒绝重叠），可用 ro export 浏览相同目录。`server_id` 可设置稳定服务身份。
 
-Web/Tauri 在工具箱 MCP 配置并测试连接后，在支持 harness 的 nestos-node 配置中点击“控制中心”。支持 profile/workspace、新建、分页/归档列表、历史、继续、发送、增量输出、命令/文件审批、用户问题、显式中断和未知请求收据确认。历史浏览不会接管会话；继续仅允许授权 cwd、拒绝接管其他宿主的活跃线程。关闭面板只释放客户端连接，服务端 turn 继续运行。CLI 宿主已统一 adapter 接入，独立 harness 命令行界面尚未提供。
+Web/Tauri 在工具箱 MCP 配置并测试连接后，在支持 harness 的 cells 配置中点击“控制中心”。支持 profile/workspace、新建、分页/归档列表、历史、继续、发送、增量输出、命令/文件审批、用户问题、显式中断和未知请求收据确认。历史浏览不会接管会话；继续仅允许授权 cwd、拒绝接管其他宿主的活跃线程。关闭面板只释放客户端连接，服务端 turn 继续运行。CLI 宿主已统一 adapter 接入，独立 harness 命令行界面尚未提供。
 
-服务提供认证后的 `POST /mcp`：实现 MCP 协议 2026-07-28，与 MCP 客户端 SDK 2.0.0 对接，支持 server/discover、tools/list/call、resources/list/read、resources/templates/list、ping；不宣告 Tasks 扩展。发现工具为 nestos_node_capabilities（兼容 piagent_capabilities / fsagent_capabilities），其余工具按项目、目录同步和 harness 分组。请求验证 protocol/version、method/name 和客户端 metadata；clientInfo 可省略，携带时验证 name/version。带 Origin 的请求还验证允许列表。Codex 控制采用官方 app-server stdio JSON-RPC，命令和目录只来自服务端配置。
+服务提供认证后的 `POST /mcp`：实现 MCP 协议 2026-07-28，与 MCP 客户端 SDK 2.0.0 对接，支持 server/discover、tools/list/call、resources/list/read、resources/templates/list、ping；不宣告 Tasks 扩展。发现工具为 cells_capabilities，其余工具按项目、目录同步和 harness 分组。请求验证 protocol/version、method/name 和客户端 metadata；clientInfo 可省略，携带时验证 name/version。带 Origin 的请求还验证允许列表。Codex 控制采用官方 app-server stdio JSON-RPC，命令和目录只来自服务端配置。
 
 `tools/list` 根据部署配置与当前身份返回可用工具：项目服务未配置时不列出项目工具，目录同步只对所属身份开放，harness 只对有 profile 授权的身份开放；project_exec/project_search 还检查执行服务与搜索程序是否可用。相同工具的参数契约固定，不因连接、会话或调用顺序变化。每个工具仅声明实际支持的必需/可选字段；project_search 的 mode 为 name/path/content，harness_session_search 为 title/content/prompt。项目范围的 harness 参数用 dependentRequired 声明 projectId/revision 的关联，具体 profile 的原生能力继续由 harness_profiles 返回。未知工具和畸形 tools/call 使用 JSON-RPC 错误；业务输入与执行失败仍返回 isError。
 
 ### MCP 目录资源
 
-`server/discover` 声明 `resources: {}`，不声明订阅或列表变化通知。`resources/list` 返回一个 `application/json` 资源 `nestos-node://<serverId>/directories`，名称为 accessible_directories；通过 `resources/read` 按需读取，不会自动扫描或附带文件内容。未显式配置 server_id 时沿用认证层生成的安装身份。首版没有参数化资源，resources/templates/list 返回空数组。列表和读取结果均为 ttlMs=0、cacheScope=private；HTTP 响应继续使用 Cache-Control: no-store。
+`server/discover` 声明 `resources: {}`，不声明订阅或列表变化通知。`resources/list` 返回一个 `application/json` 资源 `cells://<serverId>/directories`，名称为 accessible_directories；通过 `resources/read` 按需读取，不会自动扫描或附带文件内容。未显式配置 server_id 时沿用认证层生成的安装身份。首版没有参数化资源，resources/templates/list 返回空数组。列表和读取结果均为 ttlMs=0、cacheScope=private；HTTP 响应继续使用 Cache-Control: no-store。
 
 读取结果为 version=1 的 JSON 文本，包含 serverId、authorization（principalId/revision）和以下集合：
 
@@ -308,7 +310,7 @@ MCP 代码分为 [传输入口](src/plugin/mcp/mod.rs)、[协议校验](src/plug
 
 项目模式允许同一项目或不同项目的多个原生会话同时执行，每个项目 profile 最多 128 个活动 turn。同一会话仍只允许一个活动 turn，提交队列按会话串行；一个会话等待启动审批不阻塞其他会话。原生子树归档和删除与所有在途提交互斥，审批回复和中断继续旁路，以免等待中的启动无法完成。
 
-活动 turn 各自持有文件保护租约，共享全局排他的原生执行活动组；最后一个 turn 结束或对应进程确认回收后才开放文件 API、project_exec 和项目挂载变更。完成事件必须匹配 session 与 turn；在启动回执之前到达的完成事件有界保留，绑定实际 turnId 后才释放，迟到事件不能结束下一轮。某个 Claude 进程退出只回收自身会话，Codex app-server 回收该实例的全部会话；未确认进程回收时继续封闭文件门闩。并发会话共享项目工作区，独立代码修改应显式使用 worktree；服务不自动创建或选择 worktree。
+活动 turn 各自持有文件写入保护租约，共享原生执行活动组；stat、目录、内容、SeqFile 查询、项目搜索和 MCP 目录读取可并发进行。最后一个 turn 结束或对应进程确认回收后才开放文件修改、project_exec 和项目挂载变更。读取为当前观察，不保证原生执行期间的内容快照；revision 同时核对大小、mtime 和 ctime，原地修改也会撤销旧校验值。完成事件必须匹配 session 与 turn；在启动回执之前到达的完成事件有界保留，绑定实际 turnId 后才释放，迟到事件不能结束下一轮。某个 Claude 进程退出只回收自身会话，Codex app-server 回收该实例的全部会话；未确认进程回收时继续封闭文件门闩。并发会话共享项目工作区，独立代码修改应显式使用 worktree；服务不自动创建或选择 worktree。
 
 Codex app-server 的 stdin 写入和 stdout 读取独立推进；大 prompt 的管道背压不会停止接收其他会话的增量事件和 RPC 回执。请求仍使用有界队列与最多 128 个在途原生调用。会话写入按 session 串行；删除/归档的拓扑锁发生冲突时返回 EBUSY，不排队占住共享拓扑锁，避免一项待授权操作和随后排队的删除拖住其他会话。Claude 初始化仅持有当前会话槽位的锁，最多 16 个槽位同时覆盖已启动和初始化中的会话；未完成握手的会话不阻塞其他会话的控制或实时列表。项目关闭先 fence 对应驱动，再释放共享表锁等待回收；用量文件读取只锁当前会话的游标。
 
@@ -319,14 +321,14 @@ Claude 槽位已满时，先回收最久未活动且没有活动轮次、待处�
 验证（在 itookit 根目录）：
 
 ```bash
-cargo test --offline --manifest-path tools/nestos-node/Cargo.toml
-NESTOS_NODE_CODEX_TEST=1 cargo test --offline --manifest-path tools/nestos-node/Cargo.toml --test harness
-NESTOS_NODE_HARNESS_TEST=1 pnpm --filter @itookit/nestos-node-driver test tests/network.test.ts
+cargo test --offline --manifest-path tools/cells/Cargo.toml
+CELLS_CODEX_TEST=1 cargo test --offline --manifest-path tools/cells/Cargo.toml --test harness
+CELLS_HARNESS_TEST=1 pnpm --filter @itookit/cells-driver test tests/network.test.ts
 ```
 
 第一项包含原生协议模拟测试；第二项用独立临时 CODEX_HOME 启动真实 Codex，只验证创建/历史，不调用模型，也不读取个人会话；第三项用真实 MCP SDK、Rust HTTP 服务和模拟 Codex 验证完整操作。
 
-server/discover 的 `_meta['itookit/nestos-node']`（同时保留旧 `itookit/pi-agent`）返回文件协议版本、同源相对 HTTP 端点、安装 serverId、项目和 harness 支持；nestos_node_capabilities 返回同一描述并保留旧客户端兼容。客户端优先复用标准发现响应，不根据名字判断服务；该描述是本服务扩展，不是 MCP 标准保证。建议显式配置全局唯一且稳定的 server_id，以识别同一安装的不同访问地址。多个原生 harness 由服务端插件注册表适配，共用这一 MCP 连接；当前内置 Codex、Claude Code 与 DSH。
+server/discover 的 `_meta['itookit/cells']`返回文件协议版本、同源相对 HTTP 端点、安装 serverId、项目和 harness 支持；cells_capabilities 返回同一描述。客户端优先复用标准发现响应，不根据名字判断服务；该描述是本服务扩展，不是 MCP 标准保证。建议显式配置全局唯一且稳定的 server_id，以识别同一安装的不同访问地址。多个原生 harness 由服务端插件注册表适配，共用这一 MCP 连接；当前内置 Codex、Claude Code 与 DSH。
 
 
 ## 目录项目模式
@@ -335,7 +337,7 @@ server/discover 的 `_meta['itookit/nestos-node']`（同时保留旧 `itookit/pi
 
 MCP 提供 project_roots/list/read/register/configure/exec；harness 工具增加 projectId/revision/readOnly 上下文。新 harness profile 设置 projects=true，在外层 bubblewrap 内运行；命令应指向可独立运行的 native binary。projects.network 默认为 false；联网需显式开启。目标挂载目录先创建，再提交策略。无法启用沙箱时拒绝执行。
 
-当前 FileGate 是安装级，turn 执行期间文件请求可能返回 EBUSY。VMM 和项目级并发尚未实现，已留共同 ProjectLauncher 端口。详细授权、兼容行为与验证范围见 [项目模型](../../doc/design/nestos-node-project-model.md)。
+当前 FileGate 的写入保护仍是安装级，turn 执行期间文件修改可能返回 EBUSY，只读文件访问不参与原生 turn 互斥。VMM 和项目级并发尚未实现，已留共同 ProjectLauncher 端口。详细授权、兼容行为与验证范围见 [项目模型](../../doc/design/cells-project-model.md)。
 
 同时启用 `[projects]` 与 `[sync]` 后，目录绑定支持数据集落地、目录回传和双向同步。
 使用 `project_sync_directories` 浏览项目内的已有子目录；绑定和预览不写入文件。
@@ -346,7 +348,7 @@ MCP 提供 project_roots/list/read/register/configure/exec；harness 工具增�
 回传复用 sync 的 CAS 发布与持久回执，关闭面板或未知结果时通过 status 继续同一计划。
 默认更新模式保留目标独有文件，不传播删除、不穿透附加挂载或 .nestos；镜像删除未开放。
 
-服务由 pi-agent 更名为 nestos-node，更早名称为 fs-agent。升级时继续使用原 config.toml、server_id、API Key、projects.root、sync.root 和 harness home；数据目录和配置中的环境变量名无需改名。新程序为 nestos-node，启动横幅、MCP serverInfo 与新日志文件使用新名称；MCP 主发现工具为 nestos_node_capabilities，piagent_capabilities 与 fsagent_capabilities 保留为兼容别名。标准发现同时返回 itookit/nestos-node 与旧 itookit/pi-agent 描述。文件／项目协议标识、x-pi-agent-* 授权头、旧 serverId 前缀及 fs-agent.files／fs-agent.bundle 编码保持兼容，已有摘要、历史和绑定继续使用。子进程同时获得 NESTOS_NODE_PROJECT 与旧 PI_AGENT_PROJECT。
+命名统一为 `cells`：包名、命令、仓库、日志、`CELLS_*` 环境变量、`cells_capabilities` 发现工具、`itookit/cells` 元数据键、`cells://` 资源 URI 与 `x-cells-*` 授权头均使用新名称。客户端使用 `@itookit/cells-driver` 和 `createCellsDriver()`，不提供旧名称兼容入口。
 
 
 ### 项目与原生会话搜索
@@ -386,7 +388,7 @@ Codex 提供 `harness_rename`、`harness_archive`、`harness_unarchive`、`harne
 id = "claude"
 kind = "claude"
 command = "/usr/local/bin/claude"
-home = "/srv/nestos-node/claude-home"
+home = "/srv/cells/claude-home"
 projects = true
 ```
 
@@ -428,11 +430,11 @@ The transcript scope includes inherited branch history and only the usage record
 
 匿名身份只提供文件读取，不能登记项目、执行命令、访问 sync 或原生历史。认证用户的项目绑定和会话是私有的，共享文件目录不共享聊天历史。原生 profile 必须显式绑定 `principal_id`、使用 `projects=true`，不能使用无项目上下文的旧 workspace 控制入口。不同身份的 harness home 必须互不重叠，且均在 exports 之外。只读目录可以显式授予 execute，以 ro 沙箱挂载运行自己的分析会话；rw 本身不授予执行权。模型账号、home 和审批不能扩大外层目录挂载。
 
-能力发现返回当前 principal 与 grant revision。客户端可在所有文件/MCP 请求附带 `x-pi-agent-principal` 和 `x-pi-agent-grant-revision`；服务端发现身份或授权版本不匹配时，在操作前返回 AUTHORIZATION_CHANGED。项目描述返回有效权限，写权限降为只读后仍可读取原项目；旧服务端上限和客户端选择始终取交集。授权快照包含可见目录的物理身份及 profile home 范围，不能仅依赖显示名称作为缓存身份。
+能力发现返回当前 principal 与 grant revision。客户端可在所有文件/MCP 请求附带 `x-cells-principal` 和 `x-cells-grant-revision`；服务端发现身份或授权版本不匹配时，在操作前返回 AUTHORIZATION_CHANGED。项目描述返回有效权限，写权限降为只读后仍可读取原项目；旧服务端上限和客户端选择始终取交集。授权快照包含可见目录的物理身份及 profile home 范围，不能仅依赖显示名称作为缓存身份。
 
 ACL 可通过下述本地管理 CLI 修改配置，重启后生效，不提供在线 ACL 管理接口。重启按原有流程停止和回收进程；客户端需重新发现能力并刷新受影响绑定，不将授权版本变化视为可重放写入。同步仍使用一个配置的 principal/namespace，仅对应身份可访问；多身份模式不会把单个 sync namespace 自动开放给所有目录用户。
 
-itookit 的 MCP 编辑器支持 Bearer、Basic 和显式匿名访问；各连接绑定自己的身份与权限快照。此模式支持不同 itookit 实例共享 nestos-node；同一个 NestOS httpd 当前仍是单用户运行时，客户端证书只是准入，不是多租户隔离。
+itookit 的 MCP 编辑器支持 Bearer、Basic 和显式匿名访问；各连接绑定自己的身份与权限快照。此模式支持不同 itookit 实例共享 cells；同一个 NestOS httpd 当前仍是单用户运行时，客户端证书只是准入，不是多租户隔离。
 
 
 ## 目录授权管理 CLI（0.3.2）
@@ -440,39 +442,39 @@ itookit 的 MCP 编辑器支持 Bearer、Basic 和显式匿名访问；各连接
 目录本身不保存单独的密码。Bearer/Basic 验证用户身份，export 的 grants 决定该身份可以读、写或执行哪些目录。同一身份可访问多个目录，同一目录可向不同身份开放不同权限；`public` 独立开放匿名只读。配置中的 `access` 是共享目录的上限，`execute` 独立于读写权限。
 
 ```bash
-nestos-node --help
-nestos-node access --help
-nestos-node access --config /srv/nestos-node/config.toml list
-nestos-node access --config /srv/nestos-node/config.toml validate
+cells --help
+cells access --help
+cells access --config /srv/cells/config.toml list
+cells access --config /srv/cells/config.toml validate
 
 # Existing single-user credentials become principal owner, retaining existing permissions.
 # Preview first; no configuration, lock or backup file is written by --dry-run.
-nestos-node access --config /srv/nestos-node/config.toml --dry-run init
-nestos-node access --config /srv/nestos-node/config.toml init
+cells access --config /srv/cells/config.toml --dry-run init
+cells access --config /srv/cells/config.toml init
 
 # Provision a credential using the operator's existing environment or service EnvironmentFile.
 # Example token generation; keep the same value available to the restarted service.
-export PI_ALICE_TOKEN="$(openssl rand -hex 32)"
-nestos-node access --config /srv/nestos-node/config.toml principal add alice --token-env PI_ALICE_TOKEN
-nestos-node access --config /srv/nestos-node/config.toml grant alice project ro
-nestos-node access --config /srv/nestos-node/config.toml grant alice project rw --execute
+export CELLS_ALICE_TOKEN="$(openssl rand -hex 32)"
+cells access --config /srv/cells/config.toml principal add alice --token-env CELLS_ALICE_TOKEN
+cells access --config /srv/cells/config.toml grant alice project ro
+cells access --config /srv/cells/config.toml grant alice project rw --execute
 
 # A new share has no implicit authenticated grants. Paths must exist and cannot overlap exports.
-nestos-node access --config /srv/nestos-node/config.toml share add reference /srv/reference ro
-nestos-node access --config /srv/nestos-node/config.toml grant alice reference ro
-nestos-node access --config /srv/nestos-node/config.toml share set reference --public true
-nestos-node access --config /srv/nestos-node/config.toml check anonymous reference read
-nestos-node access --config /srv/nestos-node/config.toml check alice reference write
+cells access --config /srv/cells/config.toml share add reference /srv/reference ro
+cells access --config /srv/cells/config.toml grant alice reference ro
+cells access --config /srv/cells/config.toml share set reference --public true
+cells access --config /srv/cells/config.toml check anonymous reference read
+cells access --config /srv/cells/config.toml check alice reference write
 
 # Remove explicit access; inherited public reads still apply until public is disabled.
-nestos-node access --config /srv/nestos-node/config.toml revoke alice reference
-nestos-node access --config /srv/nestos-node/config.toml share set reference --public false
-nestos-node access --config /srv/nestos-node/config.toml share remove reference
+cells access --config /srv/cells/config.toml revoke alice reference
+cells access --config /srv/cells/config.toml share set reference --public false
+cells access --config /srv/cells/config.toml share remove reference
 
 # Rotate credentials without changing principal identity or its project/session ownership.
-nestos-node access --config /srv/nestos-node/config.toml principal credential alice --token-env PI_ALICE_NEW_TOKEN
-nestos-node access --config /srv/nestos-node/config.toml principal add bob --username bob --password-env PI_BOB_PASSWORD
-nestos-node access --config /srv/nestos-node/config.toml principal remove bob
+cells access --config /srv/cells/config.toml principal credential alice --token-env CELLS_ALICE_NEW_TOKEN
+cells access --config /srv/cells/config.toml principal add bob --username bob --password-env CELLS_BOB_PASSWORD
+cells access --config /srv/cells/config.toml principal remove bob
 ```
 
 `--config` 可放在命令参数前后；省略时沿用服务的 `config.toml` 查找规则。所有输出为 JSON，只有身份、凭据来源字段名和权限，不打印凭据值。拒绝的 `check` 会返回 `allowed: false` 并以非零状态退出；结果明确标记 `scope: configured-policy`、`runtimeVerified: false`，用于配置决策，不代表运行中进程已经应用修改。检查通过只证明认证、目录、原生 profile 等相关配置可被解析，不证明独占写锁、沙箱、模型登录或网络可运行。

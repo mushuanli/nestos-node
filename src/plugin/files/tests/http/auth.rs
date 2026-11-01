@@ -6,7 +6,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
-use nestos_node::fs::Export;
+use cells::fs::Export;
 use tower::ServiceExt;
 
 #[tokio::test]

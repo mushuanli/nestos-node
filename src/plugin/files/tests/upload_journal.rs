@@ -1,5 +1,5 @@
 //! Crash recovery follows durable staging records, never unrelated export contents.
-use nestos_node::fs::{upload, Export};
+use cells::fs::{upload, Export};
 use std::{
     fs,
     io::Write,
@@ -40,9 +40,9 @@ fn crash(root: &Path, published: bool) {
     fs::create_dir(root.join("nested")).unwrap();
     let output = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "upload_crash_worker", "--nocapture"])
-        .env("NESTOS_NODE_UPLOAD_TEST_ROOT", root)
+        .env("CELLS_UPLOAD_TEST_ROOT", root)
         .env(
-            "NESTOS_NODE_UPLOAD_TEST_PUBLISHED",
+            "CELLS_UPLOAD_TEST_PUBLISHED",
             if published { "1" } else { "0" },
         )
         .output()
@@ -58,7 +58,7 @@ fn crash(root: &Path, published: bool) {
 #[test]
 fn upload_crash_worker() {
     let _guard = serial();
-    let Some(root) = std::env::var_os("NESTOS_NODE_UPLOAD_TEST_ROOT") else {
+    let Some(root) = std::env::var_os("CELLS_UPLOAD_TEST_ROOT") else {
         return;
     };
     let root = Path::new(&root);
@@ -67,7 +67,7 @@ fn upload_crash_worker() {
     let mut writer = upload.writer().unwrap();
     writer.write_all(b"complete body").unwrap();
     writer.sync_all().unwrap();
-    if std::env::var("NESTOS_NODE_UPLOAD_TEST_PUBLISHED").unwrap() == "1" {
+    if std::env::var("CELLS_UPLOAD_TEST_PUBLISHED").unwrap() == "1" {
         fs::rename(staged_name(root), root.join("nested/result")).unwrap();
         fs::File::open(root.join("nested"))
             .unwrap()

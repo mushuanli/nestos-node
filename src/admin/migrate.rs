@@ -82,7 +82,7 @@ fn server_id() -> Result<String, String> {
     let mut bytes = [0u8; 16];
     getrandom::getrandom(&mut bytes).map_err(|_| "Random source unavailable")?;
     Ok(format!(
-        "pi-agent-{}",
+        "cells-{}",
         bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
     ))
 }

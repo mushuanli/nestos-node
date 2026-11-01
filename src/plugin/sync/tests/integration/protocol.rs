@@ -1,7 +1,7 @@
 use super::support::*;
 use axum::{body::Body, http::Request};
 use http_body_util::BodyExt;
-use nestos_node::router;
+use cells::router;
 use serde_json::json;
 use tower::ServiceExt;
 
@@ -18,7 +18,7 @@ async fn three_devices_publish_cas_receipts_and_range_downloads() {
     let state = state(root.path());
     let service = state
         .services
-        .get::<nestos_node::sync::SyncService>()
+        .get::<cells::sync::SyncService>()
         .unwrap()
         .clone();
     let epoch = service.epoch().to_owned();
@@ -277,7 +277,7 @@ async fn object_and_manifest_stream_limits_are_independent_of_json_commands() {
     let state = state(root.path());
     let service = state
         .services
-        .get::<nestos_node::sync::SyncService>()
+        .get::<cells::sync::SyncService>()
         .unwrap()
         .clone();
     let epoch = service.epoch().to_owned();

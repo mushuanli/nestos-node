@@ -5,14 +5,14 @@ mod native;
 #[allow(dead_code)]
 #[path = "../../common/tests/support/directory_acl.rs"]
 mod support;
-use nestos_node::{app::State, projects};
+use cells::{app::State, projects};
 use serde_json::{json, Value};
 use std::os::unix::fs::PermissionsExt;
 
 #[tokio::test]
 async fn managed_dsh_uses_the_project_launcher_and_readonly_mounts() {
     let directory = tempfile::Builder::new()
-        .prefix("nestos-node-dsh-")
+        .prefix("cells-dsh-")
         .tempdir_in("/var/tmp")
         .unwrap();
     let (root, state) = support::fixture_at(directory);
@@ -25,12 +25,12 @@ async fn managed_dsh_uses_the_project_launcher_and_readonly_mounts() {
     let mut config = support::config(root.path(), false);
     config.execution = true;
     config.projects.as_mut().unwrap().network = true;
-    config.exports[0].grants[0].access = nestos_node::config::Access::Ro;
+    config.exports[0].grants[0].access = cells::config::Access::Ro;
     config.exports[0].grants[0].execute = true;
     config.harnesses=vec![toml::from_str(&format!("id='dsh'\nkind='dsh'\nprincipal_id='alice'\nprojects=true\ncommand={command:?}\nhome={home:?}")).unwrap()];
     config.harnesses[0].aliases = vec!["old-dsh".into()];
     let state = State::from_config(&config).unwrap();
-    nestos_node::process::enable(&state).await.unwrap();
+    cells::process::enable(&state).await.unwrap();
     let who = state.auth.index("alice").unwrap();
     let project = projects::call(
         &state,
@@ -44,10 +44,10 @@ async fn managed_dsh_uses_the_project_launcher_and_readonly_mounts() {
     // Existing native sessions retain their original physical workspace path.
     let host = native::Host::new(&root.path().join("docs")).await;
     std::fs::write(&command,format!("#!/bin/sh\n[ -f readme.txt ] || exit 8\nif touch forbidden-write 2>/dev/null; then exit 9; fi\n[ -f {source:?}/readme.txt ] || exit 10\nif touch {source:?}/native-forbidden-write 2>/dev/null; then exit 11; fi\n[ ! -e {private:?}/secret.txt ] || exit 12\nprintf 'dsh web: {}?token=fixture\\n'\nexec sleep 300\n",host.url,source=root.path().join("docs"),private=root.path().join("private"))).unwrap();
-    let mut args = json!({"profileId":"old-dsh","projectId":project["id"],"revision":project["revision"],"epoch":state.services.require::<nestos_node::harness::Harnesses>().unwrap().profiles()["epoch"],"requestId":"create","workspaceId":project["id"]});
+    let mut args = json!({"profileId":"old-dsh","projectId":project["id"],"revision":project["revision"],"epoch":state.services.require::<cells::harness::Harnesses>().unwrap().profiles()["epoch"],"requestId":"create","workspaceId":project["id"]});
     let listed = state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .project_call(&state, who, "harness_sessions", args.clone())
         .await
@@ -62,7 +62,7 @@ async fn managed_dsh_uses_the_project_launcher_and_readonly_mounts() {
     query_args["readOnly"] = json!(true);
     let observed = state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .project_call(&state, who, "harness_query", query_args.clone())
         .await
@@ -71,14 +71,14 @@ async fn managed_dsh_uses_the_project_launcher_and_readonly_mounts() {
     query_args["command"] = json!("compact");
     assert!(state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .project_call(&state, who, "harness_query", query_args)
         .await
         .is_err());
     let created = state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .project_call(&state, who, "harness_create", args.clone())
         .await
@@ -89,7 +89,7 @@ async fn managed_dsh_uses_the_project_launcher_and_readonly_mounts() {
     args["prompt"] = json!("read only");
     let turn = state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .project_call(&state, who, "harness_turn", args.clone())
         .await
@@ -104,7 +104,7 @@ async fn managed_dsh_uses_the_project_launcher_and_readonly_mounts() {
     for _ in 0..40 {
         let page = state
             .services
-            .require::<nestos_node::harness::Harnesses>()
+            .require::<cells::harness::Harnesses>()
             .unwrap()
             .subscribe(&state, who, args.clone())
             .await
@@ -125,7 +125,7 @@ async fn managed_dsh_uses_the_project_launcher_and_readonly_mounts() {
     }
     let harness = state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap();
     host.state.errors.lock().unwrap().insert(
         "session/prompt".into(),
@@ -188,14 +188,14 @@ async fn managed_dsh_uses_the_project_launcher_and_readonly_mounts() {
     let bob = state.auth.index("bob").unwrap();
     assert!(state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .project_call(&state, bob, "harness_sessions", args)
         .await
         .is_err());
     state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .close()
         .await;

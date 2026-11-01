@@ -8,25 +8,25 @@
 
 ```bash
 cargo build --release
-target/release/nestos-node /path/to/config.toml
+target/release/cells /path/to/config.toml
 ```
 
 首次启动时，若 `sync.root` 不存在、为空，或只剩上次启动留下的 `sync.lock`，服务会自动创建并初始化存储，并记录 `sync.initialized` 事件。`sync init` 保留给显式初始化和无服务启动的部署流程，两者使用同一套拒绝规则：
 
 ```bash
-target/release/nestos-node sync init /path/to/config.toml
+target/release/cells sync init /path/to/config.toml
 ```
 
 自动初始化只覆盖尚无数据库的全新目录。目录内已有其他文件、`storage.json`、对象或 WAL 时，启动不会新建数据库或新身份，而是拒绝：`SYNC_ROOT_NOT_EMPTY`、`SYNC_INITIALIZATION_UNSAFE` 或 `SYNC_INITIALIZATION_INCOMPLETE`。只读 `sync verify` 对未初始化目录返回 `SYNC_NOT_INITIALIZED`，不写入任何内容。误挂载或误指向新目录会得到新的 authorityId，可用 `expected_authority_id` 检出。
 
 同步与执行可以同时启用，但同步库不得与 export、只读运行库及其实际目录别名重叠。启动会拒绝重叠目录，判定在目录创建前完成。数据库和对象库必须位于支持 SQLite WAL、文件锁、硬链接和 fsync 的本地文件系统。
 
-两个 example 是同一个 nestos-node 二进制的部署示例，不是两个不同服务。普通文件、执行和同步可以在一个进程、一个端口上同时提供：在普通配置中增加以下段即可，现有 exports 保留。纯同步示例则明确关闭 execution 并省略 exports。若选择启动两个进程，必须使用不同 listen 地址或端口；同一 sync.root 只能由一个实例独占打开。
+两个 example 是同一个 cells 二进制的部署示例，不是两个不同服务。普通文件、执行和同步可以在一个进程、一个端口上同时提供：在普通配置中增加以下段即可，现有 exports 保留。纯同步示例则明确关闭 execution 并省略 exports。若选择启动两个进程，必须使用不同 listen 地址或端口；同一 sync.root 只能由一个实例独占打开。
 
 ```toml
 [sync]
 enabled = true
-root = "/srv/nestos-node-sync"
+root = "/srv/cells-sync"
 ```
 
 除通用监听与认证配置外，sync 只需显式启用并配置私有存储路径。其余参数都有内置默认值；示例不再重复全部默认值。默认对象容量预算为 10 GiB、单对象上限 256 MiB、历史与回收窗口 30 天、changes 窗口 7 天，适合先采用默认配置再按实际容量调整。principal_id 与 namespace_id 默认分别为 owner、personal，它们是单账号存储身份，不是由 exports 的目录名派生；启用后的有效限额可通过同步 capabilities 查询。
@@ -49,18 +49,18 @@ sync.root/
 
 project-A 与 project-B 内分别保存该项目的文件、会话和附件对象；相同摘要也不跨项目合并。元数据库、上传暂存及服务锁由实例共享，元数据查询和变更按项目作用域隔离。配置只指定一个 sync.root，项目目录由服务自动管理，无需逐项目增加 TOML 配置。
 
-服务端对象实际位于 sync.root/objects/namespaceId/projectId/hash 前缀/hash，并非可直接浏览编辑的项目目录镜像。用户选择本地根目录与云端项目的绑定应由 itookit 客户端管理；当前 nestos-node 已提供项目/数据集协议，尚未交付 itookit 的目录绑定 UI 或项目同步客户端。路径式云端展示可以作为客户端导航，但不是当前协议中的服务器目录映射接口。
+服务端对象实际位于 sync.root/objects/namespaceId/projectId/hash 前缀/hash，并非可直接浏览编辑的项目目录镜像。用户选择本地根目录与云端项目的绑定应由 itookit 客户端管理；当前 cells 已提供项目/数据集协议，尚未交付 itookit 的目录绑定 UI 或项目同步客户端。路径式云端展示可以作为客户端导航，但不是当前协议中的服务器目录映射接口。
 
 管理员操作需要停机，并使用同一个 `sync.lock`；另一实例持锁时命令失败。备份和恢复目的目录必须为空，且不能与源目录重叠。
 
 ```bash
-target/release/nestos-node sync verify /path/to/config.toml
-target/release/nestos-node sync gc /path/to/config.toml
-target/release/nestos-node sync backup /path/to/config.toml /independent-disk/backup-001
+target/release/cells sync verify /path/to/config.toml
+target/release/cells sync gc /path/to/config.toml
+target/release/cells sync backup /path/to/config.toml /independent-disk/backup-001
 # 配置中的 sync.root 应改为新的空目标目录。
-target/release/nestos-node sync restore /path/to/restore.toml /independent-disk/backup-001
+target/release/cells sync restore /path/to/restore.toml /independent-disk/backup-001
 # 使用经过完整摘要校验的源文件修复指定对象。
-target/release/nestos-node sync repair /path/to/config.toml PROJECT SHA256 /path/to/trusted-object
+target/release/cells sync repair /path/to/config.toml PROJECT SHA256 /path/to/trusted-object
 ```
 
 备份包含静止的数据库、仍存在的 WAL、对象、每个文件的完整性清单和最后写入的 `COMPLETE` 标记。校验使用独立副本，不修改最终备份。备份不自动打包认证配置、TLS 或部署凭据，应另行保存这些配置。用于防磁盘损坏的备份应存放在独立故障域。
@@ -155,10 +155,10 @@ cargo fmt --check
 cargo test --all-features -- --test-threads=1
 # 新版 clippy 的 manual_inspect 告警来自现有两个非同步模块。
 cargo clippy --all-targets --all-features -- -D warnings -A clippy::manual_inspect
-NESTOS_NODE_PROCESS_TEST=1 cargo test --all-features -- --test-threads=1
+CELLS_PROCESS_TEST=1 cargo test --all-features -- --test-threads=1
 node scripts/check-sync-fixtures.mjs
 cargo build
-python3 scripts/sync-smoke.py target/debug/nestos-node
+python3 scripts/sync-smoke.py target/debug/cells
 ```
 
 sync-fault-injection 是显式测试 feature，默认构建不读取故障环境变量。它覆盖准入、发布提交、安装、GC、修复和恢复中断，以及回滚/回执写失败和提交已成功但结果不确定的分类。故障子进程测试串行运行，避免 fork 期间暂时继承其他测试的 root 锁；CAS 测试仍显式创建竞争线程。库内正确性测试另包含实际 SQLite FULL、锁内门禁、只读 verify 和流式关闭/取消。真实 HTTP 脚本包含 A/B/C 条件发布、回执去重、原 root 不可用时的空目录恢复、旧 epoch 查询/取消/重试隔离及受保护版本的摘要校验。进程退出和逻辑 I/O 故障不代表真实断电验收。

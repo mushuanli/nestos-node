@@ -1,5 +1,5 @@
 use super::support::*;
-use nestos_node::sync::SyncService;
+use cells::sync::SyncService;
 use serde_json::json;
 
 #[test]
@@ -91,7 +91,7 @@ fn backup_empty_restore_epoch_rejoin_and_damage_repair() {
     let restored_c = config(&new_root);
     let config_path = parent.path().join("restore.toml");
     std::fs::write(&config_path,format!("listen='127.0.0.1:0'\nexecution=false\ntoken='sync-test-secret-at-least-24-bytes'\n[sync]\nenabled=true\nroot='{}'\nmetadata_reserve_bytes=0",new_root.display())).unwrap();
-    nestos_node::sync::admin(&[
+    cells::sync::admin(&[
         "restore".into(),
         config_path.to_string_lossy().into_owned(),
         backup.to_string_lossy().into_owned(),
@@ -269,7 +269,7 @@ fn pins_protect_expired_versions_and_gc_reclaims_after_the_window() {
 
 #[tokio::test]
 async fn sandbox_cannot_access_sync_storage_via_paths_or_descriptors() {
-    if std::env::var("NESTOS_NODE_PROCESS_TEST").as_deref() != Ok("1") {
+    if std::env::var("CELLS_PROCESS_TEST").as_deref() != Ok("1") {
         return;
     }
     use axum::{body::Body, http::Request};
@@ -281,12 +281,12 @@ async fn sandbox_cannot_access_sync_storage_via_paths_or_descriptors() {
     std::fs::create_dir(&work).unwrap();
     let c = config(&root);
     SyncService::init(&c).unwrap();
-    let app_config:nestos_node::config::Config=toml::from_str(&format!("listen='127.0.0.1:0'\nexecution=true\nserver_id='test-node'\ntoken='sync-test-secret-at-least-24-bytes'\n[sync]\nenabled=true\nroot='{}'\nmetadata_reserve_bytes=0\n[[exports]]\npath='{}'\nalias='work'\naccess='rw'",root.display(),work.display())).unwrap();
-    let state = nestos_node::app::State::from_config(&app_config).unwrap();
-    nestos_node::process::enable(&state).await.unwrap();
-    let app = nestos_node::router(state.clone(), &[]).unwrap();
+    let app_config:cells::config::Config=toml::from_str(&format!("listen='127.0.0.1:0'\nexecution=true\nserver_id='test-node'\ntoken='sync-test-secret-at-least-24-bytes'\n[sync]\nenabled=true\nroot='{}'\nmetadata_reserve_bytes=0\n[[exports]]\npath='{}'\nalias='work'\naccess='rw'",root.display(),work.display())).unwrap();
+    let state = cells::app::State::from_config(&app_config).unwrap();
+    cells::process::enable(&state).await.unwrap();
+    let app = cells::router(state.clone(), &[]).unwrap();
     let script=format!("set -eu; test ! -e '{}'; test ! -e /workspace/../sync; for fd in /proc/self/fd/*; do target=$(readlink \"$fd\" || true); case \"$target\" in *metadata.db*|*sync.lock*) exit 8;; esac; done; printf isolated",root.display());
-    let body = json!({"serverId":"test-node","epoch":state.services.require::<nestos_node::process::Execution>().unwrap().epoch(),"requestId":"sync-isolation","command":"/bin/bash","args":["-c",script],"cwd":"/workspace","timeoutMs":5000,"mounts":[{"alias":"work","path":"","at":"/workspace","access":"rw"}]});
+    let body = json!({"serverId":"test-node","epoch":state.services.require::<cells::process::Execution>().unwrap().epoch(),"requestId":"sync-isolation","command":"/bin/bash","args":["-c",script],"cwd":"/workspace","timeoutMs":5000,"mounts":[{"alias":"work","path":"","at":"/workspace","access":"rw"}]});
     let req = Request::builder()
         .method("POST")
         .uri("/v1/processes")
@@ -302,7 +302,7 @@ async fn sandbox_cannot_access_sync_storage_via_paths_or_descriptors() {
                 "/v1/processes/{}/sync-isolation",
                 state
                     .services
-                    .require::<nestos_node::process::Execution>()
+                    .require::<cells::process::Execution>()
                     .unwrap()
                     .epoch()
             ))
@@ -403,8 +403,8 @@ fn export_overlap_identity_change_and_oversized_upload_are_rejected() {
     let root = parent.path().join("sync");
     let c = config(&root);
     SyncService::init(&c).unwrap();
-    let config:nestos_node::config::Config=toml::from_str(&format!("listen='127.0.0.1:0'\nexecution=false\ntoken='sync-test-secret-at-least-24-bytes'\n[sync]\nenabled=true\nroot='{}'\n[[exports]]\npath='{}'\nalias='all'",root.display(),parent.path().display())).unwrap();
-    assert!(nestos_node::app::State::from_config(&config)
+    let config:cells::config::Config=toml::from_str(&format!("listen='127.0.0.1:0'\nexecution=false\ntoken='sync-test-secret-at-least-24-bytes'\n[sync]\nenabled=true\nroot='{}'\n[[exports]]\npath='{}'\nalias='all'",root.display(),parent.path().display())).unwrap();
+    assert!(cells::app::State::from_config(&config)
         .err()
         .unwrap()
         .contains("SYNC_EXPORT_OVERLAP"));

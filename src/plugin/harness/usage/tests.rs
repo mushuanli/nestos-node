@@ -40,7 +40,7 @@ fn a_slow_usage_read_does_not_hold_the_other_sessions_cache_lock() {
 #[test]
 #[ignore = "Requires an explicit, read-only native transcript fixture"]
 fn readonly_existing_native_usage() {
-    let path = std::env::var("NESTOS_NODE_USAGE_SAMPLE").or_else(|_| std::env::var("MINDOS_NODE_USAGE_SAMPLE")).expect("explicit sample path");
+    let path = std::env::var("CELLS_USAGE_SAMPLE").or_else(|_| std::env::var("MINDOS_NODE_USAGE_SAMPLE")).expect("explicit sample path");
     let file = File::open(path).unwrap();
     let first = read(&Reader::default(), &file, "sample", Kind::Codex);
     assert!(!first["entries"].as_array().unwrap().is_empty());

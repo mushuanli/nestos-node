@@ -1,10 +1,10 @@
 [package]
-name = "nestos-node"
+name = "cells"
 version = "0.4.3"
 edition = "2021"
-description = "NestOS personal intelligence node for controlled files, projects, sync and AI harness sessions"
-repository = "https://github.com/mushuanli/nestos-node"
-homepage = "https://github.com/mushuanli/nestos-node"
+description = "A single intelligent node of NestOS, integrating information and agents like a cell in a honeycomb"
+repository = "https://github.com/mushuanli/cells"
+homepage = "https://github.com/mushuanli/cells"
 readme = "README.md"
 
 [dependencies]

@@ -1,4 +1,4 @@
-use nestos_node::{app::State, config::Config};
+use cells::{app::State, config::Config};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 // Credential resolution reads the process environment, so the tests serialize.
@@ -49,7 +49,7 @@ fn read_write_access_implies_exclusive_writes() {
     .unwrap();
     assert!(state.auth.clients()[0].may_write("x1"));
     assert!(state.exports.get("x1").unwrap().writable());
-    assert!(nestos_node::fs::Export::exclusive(std::path::Path::new(&path)).is_err());
+    assert!(cells::fs::Export::exclusive(std::path::Path::new(&path)).is_err());
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn execution_defaults_on_with_an_ephemeral_identity_and_can_be_disabled() {
         format!("username = \"li\"\npassword = \"12345678\"\n[[exports]]\npath = {path:?}\n");
     let first = load(&base).unwrap();
     let second = load(&base).unwrap();
-    assert!(first.auth.server_id().unwrap().starts_with("pi-agent-"));
+    assert!(first.auth.server_id().unwrap().starts_with("cells-"));
     assert_ne!(first.auth.server_id(), second.auth.server_id());
     assert_eq!(
         load(&format!("execution = false\n{base}"))
@@ -278,7 +278,7 @@ fn startup_initializes_a_missing_sync_root() {
     .unwrap();
     let sync = state
         .services
-        .get::<nestos_node::sync::SyncService>()
+        .get::<cells::sync::SyncService>()
         .expect("sync must be served");
     assert!(store.join("storage.json").exists());
     assert!(store.join("metadata.db").exists());

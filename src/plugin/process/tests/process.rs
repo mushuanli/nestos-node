@@ -3,7 +3,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use http_body_util::BodyExt;
-use nestos_node::{app::State, config::Config, router};
+use cells::{app::State, config::Config, router};
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
@@ -40,7 +40,7 @@ async fn terminal(app: &axum::Router, path: &str) -> Value {
 
 #[tokio::test]
 async fn native_execution_confines_mounts_fences_revisions_and_cancels() {
-    if std::env::var("NESTOS_NODE_PROCESS_TEST").as_deref() != Ok("1") {
+    if std::env::var("CELLS_PROCESS_TEST").as_deref() != Ok("1") {
         return;
     }
     let root = tempfile::tempdir().unwrap();
@@ -69,10 +69,10 @@ path = "{}"
     ))
     .unwrap();
     let state = State::from_config(&config).unwrap();
-    nestos_node::process::enable(&state).await.unwrap();
+    cells::process::enable(&state).await.unwrap();
     let epoch = state
         .services
-        .require::<nestos_node::process::Execution>()
+        .require::<cells::process::Execution>()
         .unwrap()
         .epoch()
         .to_owned();

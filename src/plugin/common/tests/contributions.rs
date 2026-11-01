@@ -1,7 +1,7 @@
 #[path = "support/mod.rs"]
 mod common;
 use axum::{body::Body, extract::State as AxumState, routing::get, Json, Router};
-use nestos_node::{
+use cells::{
     app::{Application, State},
     auth::{Auth, Client},
     fs::Exports,
@@ -55,7 +55,7 @@ impl NodePlugin for Feature {
             "/v1/fixture",
             get(|AxumState(state): AxumState<Arc<State>>| async move {
                 let value = state.services.require::<OwnState>()?;
-                Ok::<_, nestos_node::core::error::Error>(Json(json!({"value":value.value})))
+                Ok::<_, cells::core::error::Error>(Json(json!({"value":value.value})))
             }),
         )
     }
@@ -101,7 +101,7 @@ fn build(enabled: bool) -> Application {
         .register(Arc::new(Feature { id: "fixture" }))
         .unwrap();
     registry
-        .register(Arc::new(nestos_node::plugin::mcp::Plugin))
+        .register(Arc::new(cells::plugin::mcp::Plugin))
         .unwrap();
     let config = PluginSettings {
         enabled: BTreeMap::from([("fixture".into(), enabled)]),
@@ -145,12 +145,12 @@ async fn independently_assembles_own_configuration_state_routes_tools_resources_
     assert!(app
         .state()
         .services
-        .get::<nestos_node::harness::Harnesses>()
+        .get::<cells::harness::Harnesses>()
         .is_none());
     assert!(app
         .state()
         .services
-        .get::<nestos_node::process::Execution>()
+        .get::<cells::process::Execution>()
         .is_none());
     let response = app
         .router()
@@ -176,7 +176,7 @@ async fn independently_assembles_own_configuration_state_routes_tools_resources_
         "configured"
     );
     assert_eq!(
-        rpc(&app, "server/discover", json!({})).await["_meta"]["itookit/nestos-node"]["fixture"],
+        rpc(&app, "server/discover", json!({})).await["_meta"]["itookit/cells"]["fixture"],
         true
     );
     app.shutdown().await.unwrap();
@@ -189,7 +189,7 @@ async fn switching_off_a_plugin_removes_its_state_routes_tools_and_resources() {
     assert!(app
         .state()
         .services
-        .get::<nestos_node::operations::Operations>()
+        .get::<cells::operations::Operations>()
         .is_none());
     assert_eq!(
         app.router()
@@ -279,7 +279,7 @@ impl NodePlugin for Prepared {
     fn id(&self) -> &'static str {
         "prepared"
     }
-    fn stop<'a>(&'a self, _state: &'a Arc<State>) -> nestos_node::plugin::common::PluginFuture<'a> {
+    fn stop<'a>(&'a self, _state: &'a Arc<State>) -> cells::plugin::common::PluginFuture<'a> {
         Box::pin(async move {
             self.closed
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);

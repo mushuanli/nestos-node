@@ -3,7 +3,7 @@ use super::fixture;
 use axum::{body::Body, http::Request};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use http_body_util::BodyExt;
-use nestos_node::{app::State, harness::Harnesses};
+use cells::{app::State, harness::Harnesses};
 use serde_json::{json, Value};
 use std::sync::{atomic::Ordering, Arc};
 use tower::ServiceExt;
@@ -20,7 +20,7 @@ async fn mcp(state: &Arc<State>, name: &str, arguments: Value) -> Value {
         .header("authorization", "Bearer fixture-api-key-at-least-24-bytes")
         .body(Body::from(body.to_string()))
         .unwrap();
-    let response = nestos_node::router(state.clone(), &[])
+    let response = cells::router(state.clone(), &[])
         .unwrap()
         .oneshot(request)
         .await
@@ -140,7 +140,7 @@ async fn mcp_serves_scoped_unicode_bytes_and_missing_output_does_not_fence_futur
 }
 
 async fn register(state: &Arc<State>, name: &str, path: &str) -> Value {
-    nestos_node::projects::call(
+    cells::projects::call(
         state,
         0,
         "project_register",

@@ -1,4 +1,4 @@
-# Append to an existing multi-principal nestos-node configuration.
+# Append to an existing multi-principal cells configuration.
 # Replace installed paths and bind an existing principal.
 [[harnesses]]
 id = "codex"

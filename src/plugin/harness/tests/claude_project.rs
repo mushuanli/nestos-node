@@ -1,7 +1,7 @@
 #[allow(dead_code)]
 #[path = "../../common/tests/support/directory_acl.rs"]
 mod support;
-use nestos_node::{app::State, projects};
+use cells::{app::State, projects};
 use serde_json::{json, Value};
 use std::{path::Path, sync::Arc};
 
@@ -26,7 +26,7 @@ fn configured() -> (tempfile::TempDir, Arc<State>) {
     let template = include_str!("../../../../profiles/claude.example.toml")
         .replace("/home/USER/.claude", home.to_str().unwrap())
         .replace("principal_id = \"owner\"", "principal_id = \"alice\"");
-    let parsed: nestos_node::config::Config =
+    let parsed: cells::config::Config =
         toml::from_str(&format!("listen='127.0.0.1:0'\n{template}")).unwrap();
     let mut config = support::config(root.path(), false);
     config.harnesses = parsed.harnesses;
@@ -61,7 +61,7 @@ fn history(root: &Path, project: &Value) {
 async fn verify_history(state: &Arc<State>, alice: usize, args: &Value) {
     let listed = state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .project_call(state, alice, "harness_sessions", args.clone())
         .await
@@ -74,7 +74,7 @@ async fn verify_history(state: &Arc<State>, alice: usize, args: &Value) {
         args["sessionId"] = session["id"].clone();
         let read = state
             .services
-            .require::<nestos_node::harness::Harnesses>()
+            .require::<cells::harness::Harnesses>()
             .unwrap()
             .project_call(state, alice, "harness_session_read", args)
             .await
@@ -104,14 +104,14 @@ async fn claude_template_reads_native_and_virtual_project_history_without_adopti
     let bob = state.auth.index("bob").unwrap();
     assert!(state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .project_call(&state, bob, "harness_sessions", args)
         .await
         .is_err());
     state
         .services
-        .require::<nestos_node::harness::Harnesses>()
+        .require::<cells::harness::Harnesses>()
         .unwrap()
         .close()
         .await;

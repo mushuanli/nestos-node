@@ -1,7 +1,7 @@
 //! Integration fixtures inspect a subscription frame rather than a removed polling tool.
 #![allow(dead_code)]
 use futures_util::StreamExt;
-use nestos_node::{
+use cells::{
     app::State,
     auth::{Auth, Client},
     core::error::Error,

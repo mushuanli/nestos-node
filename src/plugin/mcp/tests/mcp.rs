@@ -5,7 +5,7 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
 use http_body_util::BodyExt;
-use nestos_node::{app::State, projects};
+use cells::{app::State, projects};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -36,7 +36,7 @@ fn request(token: Option<&str>, method: &str, mut params: Value) -> Request<Body
 }
 
 async fn response(state: &Arc<State>, request: Request<Body>) -> (StatusCode, Value) {
-    let response = nestos_node::router(state.clone(), &[])
+    let response = cells::router(state.clone(), &[])
         .unwrap()
         .oneshot(request)
         .await
@@ -92,7 +92,7 @@ async fn resources_are_discoverable_without_client_info_and_never_claim_subscrip
     assert_eq!(list["resources"].as_array().unwrap().len(), 1);
     assert_eq!(
         list["resources"][0]["uri"],
-        "nestos-node://directory-acl-test/directories"
+        "cells://directory-acl-test/directories"
     );
     assert_eq!(list["resources"][0]["name"], "accessible_directories");
     let templates = rpc(&state, Some(ALICE), "resources/templates/list", json!({})).await;
@@ -172,7 +172,7 @@ async fn directory_catalog_attenuates_saved_projects_after_a_grant_downgrade() {
     );
     drop(state);
     let mut config = support::config(root.path(), false);
-    config.exports[0].grants[0].access = nestos_node::config::Access::Ro;
+    config.exports[0].grants[0].access = cells::config::Access::Ro;
     let state = State::from_config(&config).unwrap();
     let value = catalog(&state, Some(ALICE)).await;
     assert_eq!(value["exports"][0]["access"], "ro");
@@ -189,7 +189,7 @@ async fn resource_reads_respect_the_file_gate_without_hiding_failures() {
         request(
             Some(ALICE),
             "resources/read",
-            json!({"uri":"nestos-node://directory-acl-test/directories"}),
+            json!({"uri":"cells://directory-acl-test/directories"}),
         ),
     )
     .await;
@@ -221,10 +221,10 @@ async fn directory_read_rechecks_authorization_and_replaced_project_roots() {
     let mut req = request(
         Some(ALICE),
         "resources/read",
-        json!({"uri":"nestos-node://directory-acl-test/directories"}),
+        json!({"uri":"cells://directory-acl-test/directories"}),
     );
     req.headers_mut()
-        .insert("x-pi-agent-grant-revision", "stale".parse().unwrap());
+        .insert("x-cells-grant-revision", "stale".parse().unwrap());
     let (status, value) = response(&state, req).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(value["code"], "AUTHORIZATION_CHANGED");
@@ -239,7 +239,7 @@ async fn directory_read_rechecks_authorization_and_replaced_project_roots() {
 #[tokio::test]
 async fn resource_headers_and_unknown_uris_follow_json_rpc_errors() {
     let (_root, state) = support::fixture();
-    let uri = "nestos-node://directory-acl-test/directories";
+    let uri = "cells://directory-acl-test/directories";
     for header in [None, Some("other"), Some("=?base64?invalid!?=")] {
         let mut req = request(Some(ALICE), "resources/read", json!({"uri":uri}));
         req.headers_mut().remove("mcp-name");
@@ -260,8 +260,8 @@ async fn resource_headers_and_unknown_uris_follow_json_rpc_errors() {
     assert_eq!(response(&state, encoded).await.0, StatusCode::OK);
     for uri in [
         "file:///etc/passwd",
-        "nestos-node://another/directories",
-        "nestos-node://directory-acl-test/../directories",
+        "cells://another/directories",
+        "cells://directory-acl-test/../directories",
     ] {
         let (status, value) = response(
             &state,
@@ -288,7 +288,7 @@ async fn resource_without_server_id_exposes_only_legacy_workspace_identifiers() 
     assert_eq!(
         list["resources"][0]["uri"],
         format!(
-            "nestos-node://{}/directories",
+            "cells://{}/directories",
             state.auth.server_id().unwrap()
         )
     );
@@ -325,7 +325,7 @@ async fn tool_sets_follow_deployment_and_identity_with_precise_parameter_schemas
         .iter()
         .any(|tool| tool["name"] == "project_exec" || tool["name"] == "project_search"));
     let public = rpc(&state, None, "tools/list", json!({})).await;
-    assert_eq!(public["tools"].as_array().unwrap().len(), 3);
+    assert_eq!(public["tools"].as_array().unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -333,7 +333,7 @@ async fn invalid_tool_requests_and_invalid_json_do_not_look_like_execution_resul
     let (_root, state) = support::fixture();
     for params in [
         json!({"name":"unknown"}),
-        json!({"name":"nestos_node_capabilities","arguments":[]}),
+        json!({"name":"cells_capabilities","arguments":[]}),
     ] {
         let (status, value) = response(&state, request(Some(ALICE), "tools/call", params)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);

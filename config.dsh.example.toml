@@ -1,7 +1,7 @@
 # Install DSH and initialize this private DSH_HOME before enabling the profile.
 listen = "127.0.0.1:8787"
 server_id = "dsh-node"
-api_key_env = "NESTOS_NODE_API_KEY"
+api_key_env = "CELLS_API_KEY"
 execution = true
 
 [[exports]]
@@ -10,14 +10,14 @@ path = "/srv/project"
 access = "rw"
 
 [projects]
-root = "/srv/nestos-node-private/projects"
+root = "/srv/cells-private/projects"
 network = true
 
 [[harnesses]]
 id = "dsh"
 kind = "dsh"
 command = "/usr/local/bin/dsh"
-home = "/srv/nestos-node-private/dsh"
+home = "/srv/cells-private/dsh"
 projects = true
 # In multi-principal configurations, also set principal_id = "owner" (or an
 # existing principal). See profiles/dsh.example.toml for an append-only template.
@@ -33,7 +33,7 @@ max_sessions = 64
 # [[harnesses]]
 # id = "dsh-existing"
 # kind = "dsh"
-# home = "/srv/nestos-node-private/dsh-client"
+# home = "/srv/cells-private/dsh-client"
 # projects = false
 # [[harnesses.workspaces]]
 # id = "project"
@@ -42,4 +42,4 @@ max_sessions = 64
 # url = "http://127.0.0.1:3080/"
 # token_env = "DSH_TOKEN"
 # An existing server keeps its own tool/filesystem permissions; this mode does
-# not enter nestos-node's project sandbox and is restricted to legacy single-user access.
+# not enter cells's project sandbox and is restricted to legacy single-user access.

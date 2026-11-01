@@ -1,6 +1,6 @@
 //! Workspace lease fencing: policy (`lease`) over an atomic journal.
 
-use nestos_node::workspace::lease::{LeaseError, LeaseRegistry, Owner};
+use cells::workspace::lease::{LeaseError, LeaseRegistry, Owner};
 
 fn owner(instance: &str) -> Owner {
     Owner {
